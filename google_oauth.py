@@ -38,7 +38,11 @@ def build_auth_url(telegram_id: int, redirect_uri: str) -> str:
         flow = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
-            redirect_uri=redirect_uri
+            redirect_uri=redirect_uri,
+            # This is a server-side OAuth flow.  The callback creates a new
+            # Flow instance, so an auto-generated PKCE verifier would not be
+            # available when exchanging the authorization code.
+            autogenerate_code_verifier=False,
         )
         state_str = str(telegram_id)
         state = crypto.encrypt(state_str)
@@ -102,7 +106,8 @@ def exchange_code(code: str, state: str, redirect_uri: str) -> tuple[str, str]:
         flow = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
-            redirect_uri=redirect_uri
+            redirect_uri=redirect_uri,
+            autogenerate_code_verifier=False,
         )
         flow.fetch_token(code=code)
         credentials = flow.credentials
