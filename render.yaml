@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: tool-check-tkb-webhook
+    name: tdtu-calendar-bot
     env: docker
     plan: free
     healthCheckPath: /health
@@ -9,13 +9,7 @@ services:
         value: Asia/Ho_Chi_Minh
       - key: PORT
         value: 8000
-      - key: STUDENT_ID
-        sync: false
-      - key: PASSWORD
-        sync: false
       - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
         sync: false
       - key: TELEGRAM_WEBHOOK_URL
         sync: false
@@ -23,7 +17,11 @@ services:
         generateValue: true
       - key: GEMINI_API_KEY
         sync: false
-      - key: GOOGLE_CALENDAR_ID
+      - key: SUPABASE_URL
         sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+      - key: SUPABASE_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_JSON
         sync: false
