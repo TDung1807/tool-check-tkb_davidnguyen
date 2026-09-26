@@ -411,9 +411,10 @@ def setup_tdtu(body: TDTUSetupRequest):
     # Validate TDTU login
     try:
         from tdtu import TDTUClient
-        client = TDTUClient()
-        if not client.login(body.mssv, body.password):
-            raise HTTPException(status_code=401, detail="Sai MSSV hoặc mật khẩu TDTU.")
+        # TDTUClient receives credentials at construction time and login()
+        # performs the network authentication without arguments.
+        with TDTUClient(body.mssv, body.password):
+            pass
     except HTTPException:
         raise
     except Exception as exc:
