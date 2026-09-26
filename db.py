@@ -111,9 +111,13 @@ def get_user(telegram_id: int) -> User | None:
         .maybe_single()
         .execute()
     )
-    if not result.data:
+    # Supabase clients can return ``None`` for an empty ``maybe_single``
+    # response, depending on the client version and response shape.
+    # Treat all empty response variants as an unregistered user.
+    data = getattr(result, "data", None) if result is not None else None
+    if not data:
         return None
-    return _row_to_user(result.data)
+    return _row_to_user(data)
 
 
 def upsert_user(telegram_id: int, **kwargs: object) -> User:
