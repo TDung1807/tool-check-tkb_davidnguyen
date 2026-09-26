@@ -24,7 +24,9 @@ from time_utils import local_today
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+# Keep the model configurable because model availability can differ by API key
+# and Google may restrict newer/low-cost models for some projects.
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
 GEMINI_REQUEST_TIMEOUT_MS = 10_000
 
 SMART_PASTE_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -215,7 +217,12 @@ JSON schema:
             return None
         return payload
     except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
-        logger.warning("Gemini multi-event parse failed: %s", type(exc).__name__)
+        logger.warning(
+            "Gemini multi-event parse failed model=%s type=%s error=%s",
+            DEFAULT_MODEL,
+            type(exc).__name__,
+            str(exc)[:300],
+        )
         return None
 
 
