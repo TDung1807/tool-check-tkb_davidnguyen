@@ -7,7 +7,6 @@ This is the production-friendly replacement for long polling:
 
 Environment variables:
     TELEGRAM_BOT_TOKEN
-    TELEGRAM_CHAT_ID (required owner private chat)
     TELEGRAM_WEBHOOK_URL (optional; public HTTPS URL for auto-register)
     TELEGRAM_WEBHOOK_SECRET (required secret token checked on incoming requests)
     GEMINI_API_KEY (optional; Smart Paste falls back to /add when absent)
@@ -161,6 +160,19 @@ def _build_status_text(user: db.User | None = None) -> str:
             "Mình không hiển thị lại mật khẩu vì lý do bảo mật."
         ]
     )
+    return "\n".join(lines)
+
+
+def _build_start_message(user: db.User | None) -> str:
+    """Build /start response with connection status shown immediately."""
+    lines = [START_HELP_TEXT, "", _build_status_text(user)]
+    if not user or not user.is_fully_setup:
+        lines.extend(
+            [
+                "",
+                "Hãy bấm *🚀 Bắt đầu kết nối* để cài đặt TDTU và Google Calendar.",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -969,7 +981,15 @@ def telegram_webhook(
             return {"ok": True}
 
         if command in {"/start", "/help"} and lowered == command_token:
-            _send_main_menu(token, chat_id, prefix=START_HELP_TEXT if db.get_user(int(chat_id)) else "Chào bạn! Hãy cấu hình TDTU và Google Calendar để bắt đầu.")
+            user = db.get_user(int(chat_id))
+            _send_text_with_keyboard(
+                token,
+                chat_id,
+                _build_start_message(user),
+                _build_main_menu_keyboard(
+                    _get_setup_url() if not user or not user.is_fully_setup else None
+                ),
+            )
             return {"ok": True}
         if command == "/status" and lowered == command_token:
             user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_setup else None))

@@ -1,106 +1,129 @@
-# TDTU Calendar & Telegram Bot
+# TDTU Calendar Bot
 
-Tự động lấy lịch học, lịch thi và deadline eLearning từ cổng TDTU, sau đó đồng bộ trực tiếp vào Google Calendar. Telegram là giao diện xem, thêm lịch thủ công và Smart Paste; Google Calendar là nơi lưu trữ duy nhất.
+Telegram bot hỗ trợ sinh viên TDTU kết nối tài khoản TDTU và Google Calendar, xem lịch học/lịch thi/deadline, đồng bộ dữ liệu và thêm lịch cá nhân bằng Smart Paste.
 
-## Luồng hoạt động
+## Kiến trúc hiện tại
 
 ```text
-run_hour.py
-  └─ crawler.py (TDTU / eLearning)
-       └─ calendar_sync.py → Google Calendar
-                               └─ Telegram bot / morning notification
+Telegram → Render Web Service (FastAPI / webhook_app.py)
+                         ├── Supabase: users, sync_snapshots, sync_logs
+                         ├── Google OAuth: Calendar riêng cho từng user
+                         └── TDTU/eLearning crawler
+
+GitHub Actions → run_hour.py --morning → đồng bộ lịch cho toàn bộ user
 ```
 
-- Lịch học dùng thẻ nội bộ `class_session`.
-- Lịch thi dùng thẻ `exam` và tiêu đề `[EXAM]`.
-- Deadline dùng thẻ `deadline` và tiêu đề `[DEADLINE]`.
-- `/deadline` và `/exam` chỉ lấy các sự kiện từ ngày mai trở đi qua Google Calendar API.
+Google Calendar là nơi lưu trữ lịch. Telegram là giao diện thao tác.
 
-## Telegram commands
+## Tính năng Telegram
 
 | Lệnh | Chức năng |
 | --- | --- |
-| `/start` | Mở menu thao tác và hướng dẫn ban đầu |
-| `/today` | Lịch hẹn trong ngày |
-| `/schedule [hôm nay\|mai\|YYYY-MM-DD]` | Lịch học theo ngày |
-| `/deadline` | Deadline eLearning sắp tới |
-| `/exam` | Lịch thi trong 90 ngày tới |
-| `/add` | Thêm lịch hẹn trực tiếp vào Google Calendar |
-| `/status` | Kiểm tra trạng thái cấu hình các kết nối |
+| `/start` | Mở menu và hướng dẫn kết nối |
+| `/status` | Xem trạng thái kết nối |
+| `/today` | Xem lịch hôm nay |
+| `/schedule` | Xem lịch học |
+| `/deadline` | Xem deadline eLearning |
+| `/exam` | Xem lịch thi |
+| `/add` | Thêm lịch thủ công |
 
-Khi gửi `/start`, bot hiển thị menu nút để dùng mà không cần nhớ lệnh.
-Mục **Trạng thái** chỉ kiểm tra cấu hình đã có hay chưa; không nhập hoặc gửi
-mật khẩu TDTU, token Telegram, hay khóa Google qua chat. Các secret phải được
-cấu hình trên server qua biến môi trường.
+Người dùng mới chọn **Bắt đầu kết nối**, nhập MSSV/mật khẩu TDTU trong Mini App, sau đó cấp quyền Google Calendar.
 
-Bạn cũng có thể dán một tin nhắn tự nhiên, ví dụ `Mai 14h họp nhóm CNPM ở B402` hoặc một đoạn có nhiều lịch. Bot sẽ gửi bản xem trước; chỉ nút **Thêm tất cả** mới ghi vào Google Calendar. Nếu có lịch không rõ, bot sẽ hỏi lại và không lưu một phần của đoạn đó.
+## Cấu hình Render
 
-## Cài đặt local
+Vào Render → service → **Environment** và cấu hình:
 
-1. Tạo môi trường Python và cài dependencies:
+```dotenv
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_WEBHOOK_URL=https://tool-check-tkb-davidnguyen.onrender.com/telegram/webhook
+TELEGRAM_WEBHOOK_SECRET=...
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_KEY=<service_role_key>
+ENCRYPTION_KEY=<fernet_key>
 
-2. Sao chép cấu hình mẫu:
+GOOGLE_OAUTH_CLIENT_JSON={...}
+GEMINI_API_KEY=...
+APP_TIMEZONE=Asia/Ho_Chi_Minh
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+`TELEGRAM_WEBHOOK_URL` phải đúng tuyệt đối với domain production. Sau khi lưu biến môi trường, chọn **Save and deploy**.
 
-3. Điền ít nhất các biến sau trong `.env`:
+Health check:
 
-   ```dotenv
-   STUDENT_ID=...
-   PASSWORD=...
-   GOOGLE_CALENDAR_ID=your_calendar_id
-   GOOGLE_SERVICE_ACCOUNT_FILE=service-account.json
-   TELEGRAM_BOT_TOKEN=...
-   TELEGRAM_CHAT_ID=...
-   TELEGRAM_WEBHOOK_SECRET=...
-   ```
+```text
+https://tool-check-tkb-davidnguyen.onrender.com/health
+```
 
-4. Chia sẻ Google Calendar đích cho `client_email` trong `service-account.json` với quyền **Make changes to events**. Không dùng `GOOGLE_CALENDAR_ID=primary`.
+## Google OAuth
 
-5. Chạy đồng bộ:
+Trong Google Cloud Console, thêm Authorized redirect URI:
 
-   ```bash
-   python run_hour.py
-   ```
+```text
+https://tool-check-tkb-davidnguyen.onrender.com/api/setup/google/callback
+```
 
-6. Chạy webhook Telegram (môi trường production cần URL HTTPS công khai):
+URI phải khớp tuyệt đối, gồm scheme, domain và path.
 
-   ```bash
-   uvicorn webhook_app:app --host 0.0.0.0 --port 8000
-   ```
+## Supabase
+
+Chạy toàn bộ nội dung [`schema.sql`](schema.sql) trong Supabase SQL Editor trước khi cho người dùng kết nối bot.
+
+`SUPABASE_KEY` trên Render phải là service-role key vì bot cần truy cập bảng người dùng phía server. Không đưa key này vào frontend hoặc commit vào Git.
+
+## Chạy local
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Điền các biến trong `.env`, sau đó chạy webhook:
+
+```bash
+./start.sh
+```
+
+Chạy đồng bộ thủ công cho toàn bộ user:
+
+```bash
+python run_hour.py --morning
+```
 
 ## GitHub Actions
 
-Workflow `Hourly Schedule Sync` chạy:
+- `Python tests`: chạy compile và toàn bộ test suite khi push hoặc mở pull request.
+- `Morning Schedule Sync`: chạy `python run_hour.py --morning` theo lịch 05:00 giờ Việt Nam và khi bấm thủ công.
+- `Keep Render Awake`: gọi `/health` định kỳ để hạn chế service free bị ngủ.
 
-- Mỗi giờ;
-- Mỗi lần push lên nhánh `main`;
-- Khi bấm **Run workflow** trên GitHub.
+Workflow morning cần các GitHub Secrets:
 
-Thêm các GitHub secrets: `STUDENT_ID`, `PASSWORD`, `GOOGLE_CALENDAR_ID`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. Giá trị `GOOGLE_SERVICE_ACCOUNT_JSON` là toàn bộ nội dung JSON của service account, không phải đường dẫn tệp local.
-
-Workflow `Daily Morning Notification` gửi tổng hợp lịch mỗi ngày và đọc trực tiếp từ Google Calendar.
+```text
+SUPABASE_URL
+SUPABASE_KEY
+ENCRYPTION_KEY
+GOOGLE_OAUTH_CLIENT_JSON
+TELEGRAM_BOT_TOKEN
+```
 
 ## Kiểm tra
 
 ```bash
 python -m pytest -q
-python -m py_compile *.py
+python -m compileall -q .
 ```
 
-## Ghi chú vận hành
+Playwright cần có Chromium:
 
-- `service-account.json`, `.env`, và mọi khóa Telegram/Google không được commit.
-- Webhook chỉ chấp nhận chat riêng của chủ sở hữu khi `TELEGRAM_CHAT_ID` và `TELEGRAM_WEBHOOK_SECRET` được cấu hình.
-- Preview Smart Paste hết hạn sau 15 phút hoặc khi Render khởi động lại; khi đó hãy dán lại nội dung.
-- Nếu một lần thêm nhiều lịch bị lỗi một phần, bot giữ lại các lịch lỗi để bạn thử lại; các lịch đã thành công không bị thêm lần nữa.
-- Nếu một crawler nguồn bị lỗi, `run_hour.py` không xóa dữ liệu Calendar hiện có của nguồn đó.
-- Logs của `run_hour.py` và webhook nêu rõ từng bước crawl, đồng bộ và xử lý lệnh Telegram.
+```bash
+playwright install chromium
+```
+
+## Bảo mật
+
+- Không commit `.env`, OAuth client secret, service-account JSON hoặc token.
+- Mật khẩu TDTU và Google refresh token được mã hóa bằng `ENCRYPTION_KEY` trước khi lưu Supabase.
+- Không dùng `GOOGLE_CALENDAR_ID=primary`; Google OAuth sẽ tạo/chọn Calendar riêng cho từng user.
+- Khi secret bị lộ, rotate ngay trên Telegram, Google Cloud, Supabase hoặc Render tương ứng.

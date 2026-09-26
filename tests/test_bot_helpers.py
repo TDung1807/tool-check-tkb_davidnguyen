@@ -31,6 +31,7 @@ from webhook_app import (
     MENU_STATUS_CALLBACK,
     MENU_TODAY_CALLBACK,
     _build_main_menu_keyboard,
+    _build_start_message,
     _build_status_text,
 )
 
@@ -83,6 +84,27 @@ class BotHelperTests(unittest.TestCase):
         self.assertIn("Smart Paste (AI): Chưa kết nối", status)
         self.assertNotIn("super-secret-password", status)
         self.assertNotIn("private-secret", status)
+
+    def test_start_message_includes_connection_status_for_new_user(self) -> None:
+        message = _build_start_message(None)
+
+        self.assertIn("TDTU: Chưa kết nối", message)
+        self.assertIn("Google Calendar: Chưa kết nối", message)
+        self.assertIn("Bắt đầu kết nối", message)
+
+    def test_start_message_includes_ready_status_for_connected_user(self) -> None:
+        user = db.User(
+            telegram_id=123,
+            mssv="student-123",
+            encrypted_pass="encrypted-password",
+            google_refresh_token="encrypted-refresh-token",
+            google_calendar_id="calendar@example.test",
+        )
+
+        message = _build_start_message(user)
+
+        self.assertIn("TDTU: Đã kết nối", message)
+        self.assertIn("Google Calendar: Đã kết nối", message)
 
     def test_course_name_manual_alias_overrides_auto_shortening(self) -> None:
         aliases = {"Lập trình hướng đối tượng": "OOP"}

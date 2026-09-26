@@ -11,7 +11,8 @@ Modes:
     python run_hour.py --morning  – Multi-user morning sync (uses Supabase DB)
 
 Can be scheduled to run hourly via cron, Railway Scheduled Jobs, or similar.
-This does NOT send Telegram notifications; that's handled separately by main.py.
+The multi-user morning mode sends change notifications through ``notifier.py``.
+The old single-user notification entrypoint is no longer part of production.
 """
 
 import logging
@@ -287,4 +288,3 @@ if __name__ == "__main__":
         run_morning_sync()
     else:
         run_hourly_sync()
-

@@ -65,6 +65,51 @@ def hash_schedule_data(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _parse_snapshot_data(old_data: dict | str | None) -> dict:
+    if not old_data:
+        return {}
+    try:
+        parsed = json.loads(old_data) if isinstance(old_data, str) else old_data
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _schedule_key(item: dict) -> tuple[str, ...]:
+    """Return a status-independent identity for one timetable session."""
+    return (
+        str(item.get("session_date") or item.get("date") or "").strip(),
+        str(item.get("day_of_week") or "").strip().lower(),
+        str(item.get("start_period") or "").strip(),
+        str(item.get("end_period") or "").strip(),
+        str(item.get("start_time") or "").strip(),
+        str(item.get("subject_name") or item.get("subject") or "").strip().lower(),
+        str(item.get("room") or "").strip().lower(),
+    )
+
+
+def _format_absence_detail(item: dict) -> str:
+    subject = str(item.get("subject_name") or item.get("subject") or "Môn học").strip()
+    date = str(item.get("session_date") or item.get("date") or "").strip()
+    if date:
+        try:
+            date = __import__("datetime").date.fromisoformat(date).strftime("%d/%m/%Y")
+        except ValueError:
+            pass
+    day = str(item.get("day_of_week") or "").strip()
+    when = date or day or "chưa rõ ngày"
+    start = str(item.get("start_time") or "").strip()
+    end = str(item.get("end_time") or "").strip()
+    if start and end:
+        when += f", {start[:5]}–{end[:5]}"
+    elif start:
+        when += f", {start[:5]}"
+    room = str(item.get("room") or "").strip()
+    if room:
+        when += f", phòng {room}"
+    return f"{subject} — {when} — GV báo vắng"
+
+
 def _diff_summary(
     old_data: dict | None,
     new_schedule: list[dict] | None,
@@ -73,38 +118,44 @@ def _diff_summary(
     """Build a brief Vietnamese summary of what changed."""
     parts: list[str] = []
 
-    old_schedule_count = 0
-    old_exam_count = 0
-    if old_data:
-        try:
-            old_parsed = json.loads(old_data) if isinstance(old_data, str) else old_data
-            old_schedule_count = len(old_parsed.get("schedule") or [])
-            old_exam_count = len(old_parsed.get("exams") or [])
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            pass
+    old_parsed = _parse_snapshot_data(old_data)
+    old_schedule = old_parsed.get("schedule") or []
+    old_exams = old_parsed.get("exams") or []
+    current_schedule = new_schedule or []
+    current_exams = new_exams or []
 
-    new_schedule_count = len(new_schedule or [])
-    new_exam_count = len(new_exams or [])
+    old_schedule_by_key = {_schedule_key(item): item for item in old_schedule if isinstance(item, dict)}
+    new_schedule_by_key = {_schedule_key(item): item for item in current_schedule if isinstance(item, dict)}
+    added = len(set(new_schedule_by_key) - set(old_schedule_by_key))
+    removed = len(set(old_schedule_by_key) - set(new_schedule_by_key))
+    if added:
+        parts.append(f"- Thêm: {added} tiết")
+    if removed:
+        parts.append(f"- Xóa: {removed} tiết")
 
-    if new_schedule_count != old_schedule_count:
-        diff = new_schedule_count - old_schedule_count
-        if diff > 0:
-            parts.append(f"+{diff} lịch học mới")
-        else:
-            parts.append(f"{diff} lịch học bị xóa")
-    elif new_schedule_count > 0:
-        parts.append("Lịch học có thay đổi")
+    newly_absent = [
+        item
+        for key, item in new_schedule_by_key.items()
+        if str(item.get("status") or "scheduled").lower() == "absent"
+        and str(old_schedule_by_key.get(key, {}).get("status") or "scheduled").lower() != "absent"
+    ]
+    if newly_absent:
+        parts.append(f"- Báo vắng: {len(newly_absent)} tiết")
+        parts.append("")
+        parts.append("Chi tiết báo vắng:")
+        parts.extend(f"- {_format_absence_detail(item)}" for item in newly_absent)
 
-    if new_exam_count != old_exam_count:
-        diff = new_exam_count - old_exam_count
-        if diff > 0:
-            parts.append(f"+{diff} lịch thi mới")
-        else:
-            parts.append(f"{diff} lịch thi bị xóa")
-    elif new_exam_count > 0 and old_exam_count > 0:
-        parts.append("Lịch thi có thay đổi")
+    if not parts and current_schedule != old_schedule:
+        parts.append("- Thời khóa biểu có thay đổi")
 
-    return ", ".join(parts) if parts else "Có thay đổi trong lịch"
+    old_exam_keys = {json.dumps(item, sort_keys=True, default=str) for item in old_exams}
+    new_exam_keys = {json.dumps(item, sort_keys=True, default=str) for item in current_exams}
+    if len(new_exam_keys - old_exam_keys):
+        parts.append(f"- Thêm: {len(new_exam_keys - old_exam_keys)} lịch thi")
+    if len(old_exam_keys - new_exam_keys):
+        parts.append(f"- Xóa: {len(old_exam_keys - new_exam_keys)} lịch thi")
+
+    return "\n".join(parts) if parts else "- Có thay đổi trong lịch"
 
 
 def sync_one_user(user: User) -> SyncResult:

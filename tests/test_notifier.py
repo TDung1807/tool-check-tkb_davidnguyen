@@ -1,9 +1,11 @@
 import unittest
+from unittest.mock import patch
 
 from notifier import (
     _build_combined_message,
     _compact_course_name,
     _redact_telegram_error,
+    send_change_notification,
 )
 
 
@@ -100,7 +102,23 @@ class NotifierFormattingTests(unittest.TestCase):
         self.assertNotIn("0→0", text)
         self.assertIn("Báo vắng", text)
 
+    def test_change_notification_includes_calendar_and_app_guidance(self) -> None:
+        with (
+            patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": "test-token"}, clear=False),
+            patch("notifier._send_message") as send_message,
+        ):
+            send_change_notification(
+                123,
+                "- Thêm: 2 tiết\n- Xóa: 1 tiết\n- Báo vắng: 1 tiết\n\nChi tiết báo vắng:\n- Lập trình Web — 29/09/2026, 14:25 — GV báo vắng",
+            )
+
+        message = send_message.call_args.args[2]
+        self.assertIn("Thời khóa biểu đã thay đổi", message)
+        self.assertIn("Thêm: 2 tiết", message)
+        self.assertIn("Báo vắng: 1 tiết", message)
+        self.assertIn("Đã cập nhật Google Calendar", message)
+        self.assertIn("app TDTU Student", message)
+
 
 if __name__ == "__main__":
     unittest.main()
-
