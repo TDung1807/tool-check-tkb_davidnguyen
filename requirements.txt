@@ -10,6 +10,11 @@ fastapi==0.115.8
 uvicorn[standard]==0.34.0
 google-api-python-client==2.177.0
 google-auth==2.58.0
+google-auth-oauthlib>=1.2.0
+
+# Multi-user support
+supabase>=2.0.0
+cryptography>=42.0.0
 
 # Optional: load .env when running locally (not needed in CI)
 python-dotenv==1.0.1

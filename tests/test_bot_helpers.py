@@ -1,5 +1,7 @@
 import datetime as dt
+import os
 import unittest
+from unittest.mock import patch
 
 from course_aliases import shorten_course_name
 from telegram_mvp_bot import (
@@ -20,9 +22,59 @@ from telegram_mvp_bot import (
     _parse_schedule_day_arg,
     _skip_add_form_optional_step,
 )
+from webhook_app import (
+    MENU_ADD_CALLBACK,
+    MENU_DEADLINE_CALLBACK,
+    MENU_EXAM_CALLBACK,
+    MENU_SCHEDULE_CALLBACK,
+    MENU_STATUS_CALLBACK,
+    MENU_TODAY_CALLBACK,
+    _build_main_menu_keyboard,
+    _build_status_text,
+)
 
 
 class BotHelperTests(unittest.TestCase):
+    def test_main_menu_exposes_primary_user_actions(self) -> None:
+        keyboard = _build_main_menu_keyboard()
+        callbacks = {
+            button["callback_data"]
+            for row in keyboard["inline_keyboard"]
+            for button in row
+        }
+
+        self.assertEqual(
+            callbacks,
+            {
+                MENU_TODAY_CALLBACK,
+                MENU_SCHEDULE_CALLBACK,
+                MENU_DEADLINE_CALLBACK,
+                MENU_EXAM_CALLBACK,
+                MENU_ADD_CALLBACK,
+                MENU_STATUS_CALLBACK,
+            },
+        )
+
+    def test_status_text_reports_configuration_without_secret_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "STUDENT_ID": "student-123",
+                "PASSWORD": "super-secret-password",
+                "GOOGLE_CALENDAR_ID": "calendar@example.test",
+                "GOOGLE_SERVICE_ACCOUNT_JSON": '{"private_key":"private-secret"}',
+                "GEMINI_API_KEY": "",
+            },
+            clear=False,
+        ):
+            status = _build_status_text()
+
+        self.assertIn("TDTU: Đã cấu hình", status)
+        self.assertIn("Google Calendar: Đã cấu hình", status)
+        self.assertIn("Smart Paste: Chưa cấu hình", status)
+        self.assertNotIn("super-secret-password", status)
+        self.assertNotIn("private-secret", status)
+
     def test_course_name_manual_alias_overrides_auto_shortening(self) -> None:
         aliases = {"Lập trình hướng đối tượng": "OOP"}
 

@@ -143,6 +143,41 @@ def send_error_alert(error: str) -> None:
         logger.error("Failed to send error alert to Telegram: %s", _redact_telegram_error(exc))
 
 
+def send_change_notification(telegram_id: int, changes_summary: str | None) -> None:
+    """Send a schedule-change notification to a specific user.
+
+    Used by the multi-user morning sync to alert users when their
+    timetable/exam schedule has changed since the last crawl.
+
+    Parameters
+    ----------
+    telegram_id:
+        Telegram user/chat ID to send the notification to.
+    changes_summary:
+        Brief description of what changed (e.g. "+2 lịch học mới").
+    """
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        logger.error("TELEGRAM_BOT_TOKEN not set; cannot send change notification.")
+        return
+
+    summary = _escape(changes_summary or "Có thay đổi trong lịch")
+    text = (
+        "🔔 *Thông báo thay đổi lịch*\n\n"
+        f"{summary}\n\n"
+        "_Dùng /today hoặc /schedule để xem chi tiết\\._"
+    )
+    try:
+        _send_message(token, str(telegram_id), text)
+        logger.info("Change notification sent to user %s.", telegram_id)
+    except Exception as exc:
+        logger.error(
+            "Failed to send change notification to %s: %s",
+            telegram_id,
+            _redact_telegram_error(exc),
+        )
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

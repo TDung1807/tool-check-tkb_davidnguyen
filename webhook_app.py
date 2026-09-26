@@ -100,16 +100,73 @@ _ADD_FORM_STATES: dict[str, dict[str, object]] = {}
 _SMART_PASTE_STATES = SmartPasteStateStore()
 
 ADD_ONLY_GUIDANCE_TEXT = "Bạn có thể dán lịch tự nhiên để xem trước, hoặc dùng /add để nhập từng mục thủ công."
+MENU_CALLBACK_PREFIX = "menu:"
+MENU_TODAY_CALLBACK = f"{MENU_CALLBACK_PREFIX}today"
+MENU_SCHEDULE_CALLBACK = f"{MENU_CALLBACK_PREFIX}schedule"
+MENU_DEADLINE_CALLBACK = f"{MENU_CALLBACK_PREFIX}deadline"
+MENU_EXAM_CALLBACK = f"{MENU_CALLBACK_PREFIX}exam"
+MENU_ADD_CALLBACK = f"{MENU_CALLBACK_PREFIX}add"
+MENU_STATUS_CALLBACK = f"{MENU_CALLBACK_PREFIX}status"
 START_HELP_TEXT = (
-    "Bot hiện hỗ trợ các lệnh sau:\n"
-    "/today - Xem lịch hẹn hôm nay\n"
-    "/schedule - Xem lịch học\n"
-    "/deadline - Xem deadline eLearning\n"
-    "/exam - Xem lịch thi 90 ngày tới\n"
-    "/add - Mở form thêm lịch\n\n"
-    "Bạn cũng có thể dán tin nhắn tự nhiên, ví dụ: Mai 14h họp nhóm ở B402. "
-    "Bot sẽ xem trước và chỉ lưu khi bạn bấm Thêm tất cả."
+    "Chào bạn! Mình có thể giúp bạn xem lịch học, lịch thi, deadline "
+    "và thêm lịch cá nhân.\n\n"
+    "Bạn chọn một mục bên dưới hoặc dùng lệnh /today, /schedule, /deadline, "
+    "/exam, /add.\n\n"
+    "Bạn cũng có thể dán tin nhắn tự nhiên, ví dụ: "
+    "Mai 14h họp nhóm ở B402. Mình sẽ xem trước và chỉ lưu khi bạn xác nhận."
 )
+
+
+def _build_main_menu_keyboard(setup_url: str | None = None) -> dict[str, list[list[dict[str, str]]]]:
+    """Return the primary menu so users do not need to remember commands."""
+    keyboard = []
+    if setup_url:
+        keyboard.append([{"text": "🚀 Bắt đầu kết nối", "web_app": {"url": setup_url}}])
+    keyboard.extend([
+        [
+            {"text": "📅 Lịch hôm nay", "callback_data": MENU_TODAY_CALLBACK},
+            {"text": "🎓 Lịch học", "callback_data": MENU_SCHEDULE_CALLBACK},
+        ],
+        [
+            {"text": "📝 Deadline", "callback_data": MENU_DEADLINE_CALLBACK},
+            {"text": "🧪 Lịch thi", "callback_data": MENU_EXAM_CALLBACK},
+        ],
+        [
+            {"text": "➕ Thêm lịch", "callback_data": MENU_ADD_CALLBACK},
+            {"text": "⚙️ Trạng thái", "callback_data": MENU_STATUS_CALLBACK},
+        ],
+    ])
+    return {"inline_keyboard": keyboard}
+
+
+def _build_status_text(user: db.User | None = None) -> str:
+    """Explain which integrations are ready without exposing credentials."""
+    tdtu_ok = False
+    google_ok = False
+    if user:
+        tdtu_ok = bool(user.has_tdtu)
+        google_ok = bool(user.google_refresh_token and user.google_calendar_id)
+        
+    checks = [
+        ("TDTU", tdtu_ok),
+        ("Google Calendar", google_ok),
+        ("Smart Paste (AI)", bool(os.environ.get("GEMINI_API_KEY", "").strip())),
+    ]
+    lines = ["⚙️ Trạng thái kết nối:", ""]
+    for name, ready in checks:
+        lines.append(f"{'✅' if ready else '⚠️'} {name}: {'Đã kết nối' if ready else 'Chưa kết nối'}")
+    lines.extend(
+        [
+            "",
+            "Mình không hiển thị lại mật khẩu vì lý do bảo mật."
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _send_main_menu(token: str, chat_id: str, *, prefix: str | None = None) -> None:
+    text = prefix or START_HELP_TEXT
+    _send_text_with_keyboard(token, chat_id, text, _build_main_menu_keyboard())
 
 
 def _telegram_api(token: str, method: str) -> str:
@@ -124,20 +181,32 @@ def _load_dotenv() -> None:
     load_dotenv()
 
 
-def _load_env() -> tuple[str, str, str, str | None]:
+import json
+from pydantic import BaseModel
+from fastapi.responses import FileResponse, RedirectResponse
+
+import db
+import crypto
+from telegram_auth import verify_init_data, InitDataError
+from google_oauth import build_auth_url, exchange_code, get_calendar_service
+
+def _load_env() -> tuple[str, str, str | None]:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    allowed_chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
     webhook_url = os.environ.get("TELEGRAM_WEBHOOK_URL", "").strip()
     webhook_secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip() or None
 
     if not token:
         raise RuntimeError("Missing TELEGRAM_BOT_TOKEN.")
-    if not allowed_chat_id:
-        raise RuntimeError("Missing TELEGRAM_CHAT_ID; webhook owner allowlist is required.")
     if not webhook_secret or not _WEBHOOK_SECRET_RE.fullmatch(webhook_secret):
         raise RuntimeError("Missing or invalid TELEGRAM_WEBHOOK_SECRET.")
 
-    return token, allowed_chat_id, webhook_url, webhook_secret
+    return token, webhook_url, webhook_secret
+
+
+class TDTUSetupRequest(BaseModel):
+    init_data: str
+    mssv: str
+    password: str
 
 
 def _safe_url_label(url: str) -> str:
@@ -224,6 +293,7 @@ def _register_command_menu(token: str) -> None:
         {"command": "deadline", "description": "Xem deadline eLearning"},
         {"command": "exam", "description": "Xem lịch thi 90 ngày tới"},
         {"command": "add", "description": "Thêm lịch hẹn theo mẫu"},
+        {"command": "status", "description": "Kiểm tra trạng thái kết nối"},
     ]
     result = _telegram_post(token, "setMyCommands", {"commands": commands})
     if not result.get("ok"):
@@ -242,7 +312,7 @@ def _delete_webhook(token: str) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _load_dotenv()
-    token, _, webhook_url, webhook_secret = _load_env()
+    token, webhook_url, webhook_secret = _load_env()
 
     if webhook_url:
         _register_webhook(token, webhook_url, webhook_secret)
@@ -273,7 +343,7 @@ def health() -> dict[str, str]:
 def webhook_info(
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ) -> dict[str, object]:
-    token, _, _, webhook_secret = _load_env()
+    token, _, webhook_secret = _load_env()
     if not webhook_secret or not x_telegram_bot_api_secret_token or not hmac.compare_digest(
         x_telegram_bot_api_secret_token, webhook_secret
     ):
@@ -285,7 +355,7 @@ def webhook_info(
 def gemini_health(
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ) -> dict[str, object]:
-    _, _, _, webhook_secret = _load_env()
+    _, _, webhook_secret = _load_env()
     if not webhook_secret or not x_telegram_bot_api_secret_token or not hmac.compare_digest(
         x_telegram_bot_api_secret_token, webhook_secret
     ):
@@ -307,15 +377,125 @@ def gemini_health(
     return {"api_key_set": api_key_set, "sdk_available": sdk_available, "sdk": sdk_name}
 
 
-def _is_private_owner_message(
-    message: dict, allowed_chat_id: str, *, sender: dict | None = None
-) -> bool:
-    chat = message.get("chat") or {}
-    sender = sender or message.get("from") or {}
-    chat_type = str(chat.get("type") or "")
-    chat_id = _normalize_chat_id(chat.get("id"))
-    sender_id = _normalize_chat_id(sender.get("id"))
-    return chat_type == "private" and chat_id == allowed_chat_id and sender_id == allowed_chat_id
+@app.get("/app")
+def serve_mini_app():
+    """Serve the Mini App HTML."""
+    return FileResponse("static/app.html")
+
+
+@app.post("/api/setup/tdtu")
+def setup_tdtu(body: TDTUSetupRequest):
+    """Step 1: Save TDTU credentials."""
+    token, _, _ = _load_env()
+    
+    try:
+        user_data = verify_init_data(body.init_data, token)
+        telegram_id = user_data["id"]
+        username = user_data.get("username")
+    except InitDataError as exc:
+        logger.warning(f"Invalid initData: {exc}")
+        raise HTTPException(status_code=401, detail="Xác thực Telegram thất bại.")
+
+    # Validate TDTU login
+    try:
+        from tdtu import TDTUClient
+        client = TDTUClient()
+        if not client.login(body.mssv, body.password):
+            raise HTTPException(status_code=401, detail="Sai MSSV hoặc mật khẩu TDTU.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error checking TDTU login for {telegram_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Lỗi kết nối tới TDTU. Vui lòng thử lại sau.")
+
+    # Encrypt & Save
+    encrypted_pass = crypto.encrypt(body.password)
+    db.upsert_user(
+        telegram_id, 
+        mssv=body.mssv, 
+        encrypted_pass=encrypted_pass,
+        telegram_username=username
+    )
+    
+    return {"success": True}
+
+
+@app.get("/api/setup/google")
+def setup_google(state: str):
+    """Step 2a: Redirect to Google OAuth Consent."""
+    token, _, _ = _load_env()
+    
+    try:
+        user_data = verify_init_data(state, token)
+        telegram_id = user_data["id"]
+    except InitDataError:
+        raise HTTPException(status_code=401, detail="Xác thực Telegram thất bại.")
+        
+    user = db.get_user(telegram_id)
+    if not user or not user.has_tdtu:
+        raise HTTPException(status_code=400, detail="Vui lòng kết nối TDTU trước.")
+        
+    # Redirect URL matches our callback endpoint
+    host = os.environ.get("TELEGRAM_WEBHOOK_URL", "").replace("/telegram/webhook", "")
+    redirect_uri = f"{host}/api/setup/google/callback"
+    
+    auth_url = build_auth_url(telegram_id, redirect_uri)
+    return RedirectResponse(auth_url)
+
+
+@app.get("/api/setup/google/callback")
+def google_callback(code: str, state: str):
+    """Step 2b: Handle Google OAuth Callback."""
+    host = os.environ.get("TELEGRAM_WEBHOOK_URL", "").replace("/telegram/webhook", "")
+    redirect_uri = f"{host}/api/setup/google/callback"
+    
+    try:
+        refresh_token, calendar_id = exchange_code(code, state, redirect_uri)
+        
+        telegram_id_str = crypto.decrypt(state)
+        telegram_id = int(telegram_id_str)
+        
+        encrypted_refresh_token = crypto.encrypt(refresh_token)
+        
+        db.upsert_user(
+            telegram_id,
+            google_refresh_token=encrypted_refresh_token,
+            google_calendar_id=calendar_id
+        )
+        
+        # Send confirmation message to user
+        token, _, _ = _load_env()
+        text = "✅ *Kết nối thành công!*\n\nTài khoản của bạn đã được kết nối với hệ thống.\nHàng ngày vào lúc 5h sáng, bot sẽ tự động lấy lịch học mới nhất và đồng bộ lên Google Calendar.\n\nDùng lệnh /today, /schedule, hoặc /exam để xem ngay."
+        try:
+            _send_text_with_keyboard(token, str(telegram_id), text, _build_main_menu_keyboard())
+        except Exception:
+            pass
+            
+        return RedirectResponse("/app?google=success")
+    except Exception as exc:
+        logger.error(f"Google OAuth callback error: {exc}")
+        raise HTTPException(status_code=400, detail="Đã xảy ra lỗi khi kết nối Google Calendar.")
+
+
+
+def _get_setup_url() -> str:
+    host = os.environ.get("TELEGRAM_WEBHOOK_URL", "").replace("/telegram/webhook", "")
+    return f"{host}/app"
+
+def _require_user(token: str, chat_id: str) -> db.User | None:
+    """Return User if fully connected, otherwise send setup prompt and return None."""
+    user = db.get_user(int(chat_id))
+    if not user or not user.is_fully_connected():
+        text = "⚠️ Bạn chưa kết nối với TDTU và Google Calendar.\nVui lòng bấm nút bên dưới để cài đặt."
+        _send_text_with_keyboard(token, chat_id, text, _build_main_menu_keyboard(_get_setup_url()))
+        return None
+    return user
+
+def _get_cal_kwargs(user: db.User) -> dict:
+    return {
+        "calendar_service": get_calendar_service(user.google_refresh_token),
+        "calendar_id": user.google_calendar_id
+    }
 
 
 def _update_key(payload: dict) -> str | None:
@@ -437,7 +617,7 @@ def telegram_webhook(
     payload: dict,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ) -> dict[str, bool]:
-    token, allowed_chat_id, _, webhook_secret = _load_env()
+    token, _, webhook_secret = _load_env()
     if not webhook_secret or not x_telegram_bot_api_secret_token or not hmac.compare_digest(
         x_telegram_bot_api_secret_token, webhook_secret
     ):
@@ -449,16 +629,86 @@ def telegram_webhook(
         if callback_query:
             message = callback_query.get("message") or {}
             chat_id = _normalize_chat_id((message.get("chat") or {}).get("id"))
-            if not _is_private_owner_message(
-                message, allowed_chat_id, sender=callback_query.get("from") or {}
-            ) or not chat_id:
-                logger.info("Ignore unauthorized Telegram callback.")
+            if not chat_id:
                 return {"ok": True}
 
             data = str(callback_query.get("data") or "")
+            if data in {
+                MENU_TODAY_CALLBACK,
+                MENU_SCHEDULE_CALLBACK,
+                MENU_DEADLINE_CALLBACK,
+                MENU_EXAM_CALLBACK,
+                MENU_ADD_CALLBACK,
+                MENU_STATUS_CALLBACK,
+            }:
+                _answer_callback(token, callback_query)
+                if data == MENU_STATUS_CALLBACK:
+                    user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_connected() else None))
+                    return {"ok": True}
+                    
+                user = _require_user(token, chat_id)
+                if not user:
+                    return {"ok": True}
+                    
+                cal_kwargs = _get_cal_kwargs(user)
+
+                if data == MENU_TODAY_CALLBACK:
+                    _, rows, _ = fetch_events_from_calendar(local_today(), **cal_kwargs)
+                    _send_text_with_keyboard(
+                        token,
+                        chat_id,
+                        _build_today_appointments_text(rows),
+                        _build_main_menu_keyboard(),
+                    )
+                elif data == MENU_SCHEDULE_CALLBACK:
+                    target_date = local_today()
+                    rows, _, _ = fetch_events_from_calendar(target_date, **cal_kwargs)
+                    _send_text_with_keyboard(
+                        token,
+                        chat_id,
+                        _build_schedule_text(rows, target_date),
+                        _build_main_menu_keyboard(),
+                    )
+                elif data == MENU_DEADLINE_CALLBACK:
+                    rows = fetch_tagged_calendar_events(SYNC_SOURCE_DEADLINE, **cal_kwargs)
+                    keyboard = _build_deadline_keyboard(rows)
+                    markup = keyboard if rows and keyboard["inline_keyboard"] else _build_main_menu_keyboard()
+                    _send_text_with_keyboard(
+                        token,
+                        chat_id,
+                        _build_deadline_list_text(rows),
+                        markup,
+                    )
+                elif data == MENU_EXAM_CALLBACK:
+                    rows = fetch_tagged_calendar_events(SYNC_SOURCE_EXAM, **cal_kwargs)
+                    _send_text_with_keyboard(
+                        token,
+                        chat_id,
+                        _build_exam_list_text(rows),
+                        _build_main_menu_keyboard(),
+                    )
+                elif data == MENU_ADD_CALLBACK:
+                    active = _SMART_PASTE_STATES.active_batch_for_chat(chat_id)
+                    if active:
+                        _SMART_PASTE_STATES.cancel(chat_id, active.batch_id)
+                    state = _new_add_form_state()
+                    _ADD_FORM_STATES[chat_id] = state
+                    _send_add_form_step(token, chat_id, state, prefix="Bắt đầu form thêm lịch.")
+                else:
+                    _send_text_with_keyboard(
+                        token,
+                        chat_id,
+                        _build_status_text(),
+                        _build_main_menu_keyboard(),
+                    )
+                return {"ok": True}
+
             if data.startswith("deadline:"):
                 _answer_callback(token, callback_query)
-                selected = find_tagged_calendar_event(SYNC_SOURCE_DEADLINE, data.split(":", 1)[1])
+                user = _require_user(token, chat_id)
+                if not user:
+                    return {"ok": True}
+                selected = find_tagged_calendar_event(SYNC_SOURCE_DEADLINE, data.split(":", 1)[1], **_get_cal_kwargs(user))
                 _send_text(token, chat_id, _build_deadline_detail_text(selected))
                 return {"ok": True}
 
@@ -486,6 +736,8 @@ def telegram_webhook(
                     return {"ok": True}
                 title, appt_date, start_time, location = _build_add_appointment_from_form(state)
                 appointment_id = str(state.setdefault("appointment_id", uuid.uuid4().hex))
+                user = _require_user(token, chat_id)
+                if not user: return {"ok": True}
                 insert_calendar_event(
                     title=title,
                     appointment_date=appt_date,
@@ -494,6 +746,7 @@ def telegram_webhook(
                     location=location,
                     note=_build_add_form_raw_input(state),
                     appointment_id=appointment_id,
+                    **_get_cal_kwargs(user),
                 )
                 _ADD_FORM_STATES.pop(chat_id, None)
                 _send_text(token, chat_id, _build_appointment_confirmation(title, appt_date, start_time, location))
@@ -561,6 +814,8 @@ def telegram_webhook(
                     continue
                 event = item.event
                 try:
+                    user = _require_user(token, chat_id)
+                    if not user: continue
                     calendar_event_id = insert_calendar_event(
                         title=event.title,
                         appointment_date=event.appointment_date,
@@ -569,6 +824,7 @@ def telegram_webhook(
                         location=event.location,
                         note=event.note,
                         appointment_id=event.event_id,
+                        **_get_cal_kwargs(user),
                     )
                     if not calendar_event_id:
                         raise CalendarPersistenceError("Calendar returned no event ID")
@@ -627,8 +883,7 @@ def telegram_webhook(
 
         message = payload.get("message") or {}
         chat_id = _normalize_chat_id((message.get("chat") or {}).get("id"))
-        if not _is_private_owner_message(message, allowed_chat_id) or not chat_id:
-            logger.info("Ignore unauthorized Telegram message.")
+        if not chat_id:
             return {"ok": True}
         text = (message.get("text") or "").strip()
         if not text:
@@ -695,6 +950,7 @@ def telegram_webhook(
                 location=location,
                 note=_build_add_form_raw_input(form_state),
                 appointment_id=appointment_id,
+                **cal_kwargs,
             )
             _ADD_FORM_STATES.pop(chat_id, None)
             _send_text(token, chat_id, _build_appointment_confirmation(title, appt_date, start_time, location))
@@ -713,14 +969,23 @@ def telegram_webhook(
             return {"ok": True}
 
         if command in {"/start", "/help"} and lowered == command_token:
-            _send_text(token, chat_id, START_HELP_TEXT)
+            _send_main_menu(token, chat_id, prefix=START_HELP_TEXT if db.get_user(int(chat_id)) else "Chào bạn! Hãy cấu hình TDTU và Google Calendar để bắt đầu.")
             return {"ok": True}
+        if command == "/status" and lowered == command_token:
+            user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_connected() else None))
+            return {"ok": True}
+            
+        user = _require_user(token, chat_id)
+        if not user:
+            return {"ok": True}
+        cal_kwargs = _get_cal_kwargs(user)
+
         if command == "/today" and lowered == command_token:
-            _, rows, _ = fetch_events_from_calendar(local_today())
+            _, rows, _ = fetch_events_from_calendar(local_today(), **cal_kwargs)
             _send_text(token, chat_id, _build_today_appointments_text(rows))
             return {"ok": True}
         if command == "/deadline" and lowered == command_token:
-            rows = fetch_tagged_calendar_events(SYNC_SOURCE_DEADLINE)
+            rows = fetch_tagged_calendar_events(SYNC_SOURCE_DEADLINE, **cal_kwargs)
             keyboard = _build_deadline_keyboard(rows)
             if rows and keyboard["inline_keyboard"]:
                 _send_text_with_keyboard(token, chat_id, _build_deadline_list_text(rows), keyboard)
@@ -728,7 +993,7 @@ def telegram_webhook(
                 _send_text(token, chat_id, _build_deadline_list_text(rows))
             return {"ok": True}
         if command == "/exam" and lowered == command_token:
-            rows = fetch_tagged_calendar_events(SYNC_SOURCE_EXAM)
+            rows = fetch_tagged_calendar_events(SYNC_SOURCE_EXAM, **cal_kwargs)
             _send_text(token, chat_id, _build_exam_list_text(rows))
             return {"ok": True}
         if command in {"/schedule", "/scheduel"}:
@@ -750,7 +1015,7 @@ def telegram_webhook(
             _send_add_form_step(token, chat_id, state, prefix="Bắt đầu form thêm lịch.")
             return {"ok": True}
         if lowered.startswith("/"):
-            _send_text(token, chat_id, START_HELP_TEXT)
+            _send_main_menu(token, chat_id, prefix="Mình chưa nhận ra lệnh đó.")
             return {"ok": True}
         gemini_res = parse_events_with_gemini(text, reference_date=local_today())
         if gemini_res is None:

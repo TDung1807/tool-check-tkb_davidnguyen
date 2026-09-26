@@ -20,11 +20,18 @@ run_hour.py
 
 | Lệnh | Chức năng |
 | --- | --- |
+| `/start` | Mở menu thao tác và hướng dẫn ban đầu |
 | `/today` | Lịch hẹn trong ngày |
 | `/schedule [hôm nay\|mai\|YYYY-MM-DD]` | Lịch học theo ngày |
 | `/deadline` | Deadline eLearning sắp tới |
 | `/exam` | Lịch thi trong 90 ngày tới |
 | `/add` | Thêm lịch hẹn trực tiếp vào Google Calendar |
+| `/status` | Kiểm tra trạng thái cấu hình các kết nối |
+
+Khi gửi `/start`, bot hiển thị menu nút để dùng mà không cần nhớ lệnh.
+Mục **Trạng thái** chỉ kiểm tra cấu hình đã có hay chưa; không nhập hoặc gửi
+mật khẩu TDTU, token Telegram, hay khóa Google qua chat. Các secret phải được
+cấu hình trên server qua biến môi trường.
 
 Bạn cũng có thể dán một tin nhắn tự nhiên, ví dụ `Mai 14h họp nhóm CNPM ở B402` hoặc một đoạn có nhiều lịch. Bot sẽ gửi bản xem trước; chỉ nút **Thêm tất cả** mới ghi vào Google Calendar. Nếu có lịch không rõ, bot sẽ hỏi lại và không lưu một phần của đoạn đó.
 

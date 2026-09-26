@@ -6,6 +6,10 @@ This script runs the data-collection pipeline:
     2. Push raw crawler results directly to Google Calendar.
     3. Finish after Calendar reconciliation.
 
+Modes:
+    python run_hour.py            – Legacy single-user sync (uses env vars)
+    python run_hour.py --morning  – Multi-user morning sync (uses Supabase DB)
+
 Can be scheduled to run hourly via cron, Railway Scheduled Jobs, or similar.
 This does NOT send Telegram notifications; that's handled separately by main.py.
 """
@@ -69,6 +73,98 @@ def _log_step_elapsed(step_name: str, started_at: float) -> None:
     """Log how long a step took in seconds."""
     elapsed = time.perf_counter() - started_at
     logger.info("%s finished in %.2fs", step_name, elapsed)
+
+
+# -----------------------------------------------------------------------
+# Multi-user morning sync (NEW)
+# -----------------------------------------------------------------------
+
+
+def run_morning_sync() -> None:
+    """Crawl all active users, sync Calendar, notify only on changes.
+
+    This is triggered by ``python run_hour.py --morning`` or the
+    GitHub Actions Morning Schedule Sync workflow.
+    """
+    _load_dotenv()
+
+    import db
+    from notifier import send_change_notification
+    from user_sync import sync_one_user
+
+    users = db.get_all_active_users()
+    logger.info("Morning sync: %d active user(s)", len(users))
+
+    if not users:
+        logger.info("No active users found. Nothing to do.")
+        return
+
+    success_count = 0
+    change_count = 0
+    fail_count = 0
+
+    for user in users:
+        started = time.perf_counter()
+        try:
+            result = sync_one_user(user)
+
+            if result.error:
+                logger.error(
+                    "Sync error for user %s: %s", user.telegram_id, result.error
+                )
+                db.log_sync(user.telegram_id, "failed", result.error, sync_type="morning")
+                fail_count += 1
+                continue
+
+            if result.has_changes:
+                logger.info(
+                    "Changes found for user %s: %s",
+                    user.telegram_id,
+                    result.changes_summary,
+                )
+                try:
+                    send_change_notification(user.telegram_id, result.changes_summary)
+                except Exception as notify_exc:
+                    logger.warning(
+                        "Could not send change notification to user %s: %s",
+                        user.telegram_id,
+                        notify_exc,
+                    )
+                db.log_sync(
+                    user.telegram_id, "success", result.changes_summary, sync_type="morning"
+                )
+                change_count += 1
+            else:
+                db.log_sync(
+                    user.telegram_id, "no_change", "Không có thay đổi", sync_type="morning"
+                )
+
+            success_count += 1
+
+        except Exception as exc:
+            logger.exception("Unexpected error syncing user %s", user.telegram_id)
+            try:
+                db.log_sync(user.telegram_id, "failed", str(exc)[:500], sync_type="morning")
+            except Exception:
+                pass
+            fail_count += 1
+
+        elapsed = time.perf_counter() - started
+        logger.info(
+            "User %s sync took %.2fs", user.telegram_id, elapsed
+        )
+
+    logger.info(
+        "=== Morning sync complete: %d success, %d changed, %d failed ===",
+        success_count,
+        change_count,
+        fail_count,
+    )
+
+
+# -----------------------------------------------------------------------
+# Legacy single-user sync
+# -----------------------------------------------------------------------
 
 
 def run_hourly_sync() -> None:
@@ -187,4 +283,8 @@ def run_hourly_sync() -> None:
 
 
 if __name__ == "__main__":
-    run_hourly_sync()
+    if "--morning" in sys.argv:
+        run_morning_sync()
+    else:
+        run_hourly_sync()
+

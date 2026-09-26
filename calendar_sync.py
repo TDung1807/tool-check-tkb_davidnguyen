@@ -149,6 +149,9 @@ def sync_crawled_data_to_google_calendar(
     student_id: str | None = None,
     deadlines: list[dict] | None = None,
     deadline_window: tuple[dt.datetime, dt.datetime] | None = None,
+    *,
+    calendar_service=None,
+    calendar_id=None,
 ) -> tuple[str, bool]:
     """Sync raw crawled data without deleting sources whose crawl failed.
 
@@ -194,29 +197,35 @@ def sync_crawled_data_to_google_calendar(
         logger.warning("Calendar sync skipped because no crawler data was collected.")
         return "", False
 
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
     events = [item["payload"] for item in sync_items]
     
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
-    calendar_required = os.environ.get("GOOGLE_CALENDAR_REQUIRED", "true").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    if not calendar_id or (not service_account_json and not service_account_file):
-        if calendar_required:
-            raise RuntimeError(
-                "Google Calendar sync is required but credentials are missing. "
-                "Set GOOGLE_CALENDAR_ID and GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE."
+    if calendar_service is not None:
+        if calendar_id is None:
+            raise ValueError("calendar_id must be provided when calendar_service is provided")
+        service = calendar_service
+    else:
+        calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
+        service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+        service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+        calendar_required = os.environ.get("GOOGLE_CALENDAR_REQUIRED", "true").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        if not calendar_id or (not service_account_json and not service_account_file):
+            if calendar_required:
+                raise RuntimeError(
+                    "Google Calendar sync is required but credentials are missing. "
+                    "Set GOOGLE_CALENDAR_ID and GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE."
+                )
+            logger.warning(
+                "Google Calendar sync skipped. Missing GOOGLE_CALENDAR_ID and Google credentials."
             )
-        logger.warning(
-            "Google Calendar sync skipped. Missing GOOGLE_CALENDAR_ID and Google credentials."
-        )
-        return "", False
+            return "", False
 
-    service, service_account_email = _build_calendar_service(service_account_json, service_account_file)
-    _validate_calendar_target(service, calendar_id, service_account_email)
+        service, service_account_email = _build_calendar_service(service_account_json, service_account_file)
+        _validate_calendar_target(service, calendar_id, service_account_email)
+
     _replace_bot_events_for_range(service, calendar_id, sync_items, student_id, managed, deadline_window=deadline_window)
 
     logger.info(
@@ -237,6 +246,8 @@ def insert_calendar_event(
     note: str | None,
     *,
     appointment_id: str | None = None,
+    calendar_service=None,
+    calendar_id=None,
 ) -> str:
     """Insert one appointment and return a verified Calendar event ID.
 
@@ -244,23 +255,31 @@ def insert_calendar_event(
     only reliable way to distinguish a retried request from a new intentional
     duplicate when the Calendar API response is lost after the server commits.
     """
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+    if calendar_service is not None:
+        if calendar_id is None:
+            raise ValueError("calendar_id must be provided when calendar_service is provided")
+        service = calendar_service
+        cal_id = calendar_id
+    else:
+        cal_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
+        service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+        service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
 
-    if not calendar_id or (not service_account_json and not service_account_file):
-        raise CalendarConfigurationError(
-            "Google Calendar is not configured. Set GOOGLE_CALENDAR_ID and service-account credentials."
-        )
+        if not cal_id or (not service_account_json and not service_account_file):
+            raise CalendarConfigurationError(
+                "Google Calendar is not configured. Set GOOGLE_CALENDAR_ID and service-account credentials."
+            )
 
-    if calendar_id.lower() == "primary":
-        raise CalendarConfigurationError(
-            "GOOGLE_CALENDAR_ID=primary is not valid for service-account appointment writes."
-        )
+        if cal_id.lower() == "primary":
+            raise CalendarConfigurationError(
+                "GOOGLE_CALENDAR_ID=primary is not valid for service-account appointment writes."
+            )
 
-    service, service_account_email = _build_calendar_service(service_account_json, service_account_file)
-    if callable(getattr(service, "calendars", None)):
-        _validate_calendar_target(service, calendar_id, service_account_email)
+        service, service_account_email = _build_calendar_service(service_account_json, service_account_file)
+        if callable(getattr(service, "calendars", None)):
+            _validate_calendar_target(service, cal_id, service_account_email)
+            
+    calendar_id = cal_id
     timezone = os.environ.get("APP_TIMEZONE", "Asia/Ho_Chi_Minh")
     try:
         ZoneInfo(timezone)
@@ -351,17 +370,31 @@ def insert_calendar_event(
     return returned_id
 
 
-def fetch_events_from_calendar(target_date: dt.date, days_ahead: int = 0) -> tuple[list[dict], list[dict], list[dict]]:
+def fetch_events_from_calendar(
+    target_date: dt.date,
+    days_ahead: int = 0,
+    *,
+    calendar_service=None,
+    calendar_id=None,
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Fetch Calendar events and group classes, appointments, and exams."""
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+    if calendar_service is not None:
+        if calendar_id is None:
+            raise ValueError("calendar_id must be provided when calendar_service is provided")
+        service = calendar_service
+        cal_id = calendar_id
+    else:
+        cal_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
+        service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+        service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
 
-    if not calendar_id or (not service_account_json and not service_account_file):
-        logger.warning("Missing credentials, cannot fetch from Google Calendar.")
-        return [], [], []
+        if not cal_id or (not service_account_json and not service_account_file):
+            logger.warning("Missing credentials, cannot fetch from Google Calendar.")
+            return [], [], []
 
-    service, _ = _build_calendar_service(service_account_json, service_account_file)
+        service, _ = _build_calendar_service(service_account_json, service_account_file)
+        
+    calendar_id = cal_id
     timezone = os.environ.get("APP_TIMEZONE", "Asia/Ho_Chi_Minh")
     tz = ZoneInfo(timezone)
     
@@ -463,16 +496,27 @@ def fetch_tagged_calendar_events(
     source_type: str,
     target_date: dt.date | None = None,
     days_ahead: int = 90,
+    *,
+    calendar_service=None,
+    calendar_id=None,
 ) -> list[dict]:
     """Return bot-created tagged events from tomorrow onward by default."""
-    calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
-    if not calendar_id or (not service_account_json and not service_account_file):
-        logger.warning("Missing credentials, cannot fetch tagged Calendar events.")
-        return []
+    if calendar_service is not None:
+        if calendar_id is None:
+            raise ValueError("calendar_id must be provided when calendar_service is provided")
+        service = calendar_service
+        cal_id = calendar_id
+    else:
+        cal_id = os.environ.get("GOOGLE_CALENDAR_ID", "").strip()
+        service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+        service_account_file = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+        if not cal_id or (not service_account_json and not service_account_file):
+            logger.warning("Missing credentials, cannot fetch tagged Calendar events.")
+            return []
 
-    service, _ = _build_calendar_service(service_account_json, service_account_file)
+        service, _ = _build_calendar_service(service_account_json, service_account_file)
+        
+    calendar_id = cal_id
     timezone = os.environ.get("APP_TIMEZONE", "Asia/Ho_Chi_Minh")
     tz = ZoneInfo(timezone)
     start_date = target_date or (local_today() + dt.timedelta(days=1))
@@ -511,12 +555,22 @@ def fetch_tagged_calendar_events(
     return rows
 
 
-def find_tagged_calendar_event(source_type: str, source_key: str) -> dict | None:
+def find_tagged_calendar_event(
+    source_type: str,
+    source_key: str,
+    *,
+    calendar_service=None,
+    calendar_id=None,
+) -> dict | None:
     """Find a future tagged event selected through a Telegram callback."""
     return next(
         (
             event
-            for event in fetch_tagged_calendar_events(source_type)
+            for event in fetch_tagged_calendar_events(
+                source_type,
+                calendar_service=calendar_service,
+                calendar_id=calendar_id,
+            )
             if str(event.get("source_key") or "") == source_key
         ),
         None,
