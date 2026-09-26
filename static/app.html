@@ -320,11 +320,31 @@
                 }
             });
 
+            // Open OAuth outside Telegram's embedded WebView when possible.
+            // The final location fallback also works on browsers that block popups.
+            function openGoogleOAuth(url) {
+                const telegramWebApp = window.Telegram && window.Telegram.WebApp;
+                if (telegramWebApp && typeof telegramWebApp.openLink === 'function') {
+                    try {
+                        telegramWebApp.openLink(url, { try_instant_view: false });
+                        return;
+                    } catch (error) {
+                        console.warn('Telegram external link failed; using browser fallback.', error);
+                    }
+                }
+
+                const popup = window.open(url, '_blank', 'noopener,noreferrer');
+                if (!popup) {
+                    window.location.assign(url);
+                }
+            }
+
             // Handle Google Calendar Button Click
             googleBtn.addEventListener('click', () => {
-                // Redirect to Google setup with init_data as state
+                // Open Google in the system browser so passkeys are available.
                 const encodedInitData = encodeURIComponent(tg.initData);
-                window.location.href = `/api/setup/google?state=${encodedInitData}`;
+                const oauthUrl = `${window.location.origin}/api/setup/google?state=${encodedInitData}`;
+                openGoogleOAuth(oauthUrl);
             });
         });
     </script>
