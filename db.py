@@ -128,6 +128,27 @@ def upsert_user(telegram_id: int, **kwargs: object) -> User:
         upsert_user(12345, mssv="205xxxx", encrypted_pass="gAAAA...")
     """
     client = _get_client()
+
+    # PostgREST upsert treats the payload as a complete row when inserting.
+    # That makes a partial update (for example, saving Google credentials for
+    # an existing TDTU user) fail on NOT NULL columns such as ``mssv``.  Use a
+    # real UPDATE for existing users and reserve UPSERT for the initial row.
+    existing = get_user(telegram_id)
+    if existing is not None:
+        result = (
+            client.table("users")
+            .update(dict(kwargs))
+            .eq("telegram_id", telegram_id)
+            .execute()
+        )
+        updated_data = getattr(result, "data", None) if result is not None else None
+        if updated_data:
+            return _row_to_user(updated_data[0])
+        refreshed = get_user(telegram_id)
+        if refreshed is None:
+            raise RuntimeError("Supabase update returned no user.")
+        return refreshed
+
     data: dict[str, object] = {"telegram_id": telegram_id, **kwargs}
 
     result = (
