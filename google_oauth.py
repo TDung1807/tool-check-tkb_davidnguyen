@@ -108,7 +108,12 @@ def exchange_code(code: str, state: str, redirect_uri: str) -> tuple[str, str]:
         credentials = flow.credentials
         
         if not credentials.refresh_token:
-            logger.warning(f"No refresh token received for telegram_id {telegram_id}. The user might need to revoke access and try again.")
+            message = (
+                "Google không trả refresh token. Hãy xóa quyền của ứng dụng tại "
+                "https://myaccount.google.com/permissions rồi thử kết nối lại."
+            )
+            logger.warning("No refresh token received for telegram_id %s.", telegram_id)
+            raise ValueError(message)
             
         service = build('calendar', 'v3', credentials=credentials)
         calendar_id = get_or_create_calendar(service)

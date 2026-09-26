@@ -457,8 +457,17 @@ def setup_google(state: str):
 
 
 @app.get("/api/setup/google/callback")
-def google_callback(code: str, state: str):
+def google_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
     """Step 2b: Handle Google OAuth Callback."""
+    if error == "access_denied":
+        raise HTTPException(status_code=400, detail="Bạn đã hủy quyền kết nối Google Calendar.")
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Google OAuth callback thiếu code hoặc state.")
+
     host = os.environ.get("TELEGRAM_WEBHOOK_URL", "").replace("/telegram/webhook", "")
     redirect_uri = f"{host}/api/setup/google/callback"
     
@@ -485,9 +494,18 @@ def google_callback(code: str, state: str):
             pass
             
         return RedirectResponse("/app?google=success")
+    except ValueError as exc:
+        logger.warning("Google OAuth callback rejected: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error(f"Google OAuth callback error: {exc}")
-        raise HTTPException(status_code=400, detail="Đã xảy ra lỗi khi kết nối Google Calendar.")
+        logger.exception("Google OAuth callback error type=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Không thể kết nối Google Calendar. Hãy kiểm tra Google Calendar API, "
+                "redirect URI và thử lại."
+            ),
+        ) from exc
 
 
 
