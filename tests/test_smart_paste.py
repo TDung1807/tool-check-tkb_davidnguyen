@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from gemini_parser import parse_events_with_gemini
+import db
 from telegram_mvp_bot import (
     SMART_PASTE_ADD_ALL_CALLBACK,
     SMART_PASTE_CANCEL_CALLBACK,
@@ -279,6 +280,26 @@ class WebhookSmartPasteTests(unittest.TestCase):
         _ADD_FORM_STATES.clear()
         self.client = _DirectWebhookClient()
         self.headers = {"X-Telegram-Bot-Api-Secret-Token": "test-secret"}
+        self._user_patcher = patch(
+            "webhook_app.db.get_user",
+            return_value=db.User(
+                telegram_id=123,
+                mssv="student-123",
+                encrypted_pass="encrypted-password",
+                google_refresh_token="encrypted-refresh-token",
+                google_calendar_id="calendar@example.test",
+            ),
+        )
+        self._calendar_patcher = patch(
+            "webhook_app._get_cal_kwargs",
+            return_value={"calendar_service": MagicMock(), "calendar_id": "calendar@example.test"},
+        )
+        self._user_patcher.start()
+        self._calendar_patcher.start()
+
+    def tearDown(self) -> None:
+        self._calendar_patcher.stop()
+        self._user_patcher.stop()
 
     def test_plain_text_triggers_smart_paste_preview(self) -> None:
         parsed = {

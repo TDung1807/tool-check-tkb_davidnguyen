@@ -12,4 +12,4 @@ jobs:
     steps:
       - name: Ping Render health endpoint
         run: |
-          curl --fail --silent --show-error --max-time 30 https://tool-check-tkb.onrender.com/health || true
+          curl --fail --silent --show-error --max-time 30 https://tool-check-tkb-davidnguyen.onrender.com/health || true

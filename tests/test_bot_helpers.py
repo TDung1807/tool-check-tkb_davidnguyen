@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from course_aliases import shorten_course_name
+import db
 from telegram_mvp_bot import (
     ADD_FORM_SKIP_WHERE_CALLBACK,
     _advance_add_form_state,
@@ -67,11 +68,19 @@ class BotHelperTests(unittest.TestCase):
             },
             clear=False,
         ):
-            status = _build_status_text()
+            status = _build_status_text(
+                db.User(
+                    telegram_id=123,
+                    mssv="student-123",
+                    encrypted_pass="encrypted-password",
+                    google_refresh_token="encrypted-refresh-token",
+                    google_calendar_id="calendar@example.test",
+                )
+            )
 
-        self.assertIn("TDTU: Đã cấu hình", status)
-        self.assertIn("Google Calendar: Đã cấu hình", status)
-        self.assertIn("Smart Paste: Chưa cấu hình", status)
+        self.assertIn("TDTU: Đã kết nối", status)
+        self.assertIn("Google Calendar: Đã kết nối", status)
+        self.assertIn("Smart Paste (AI): Chưa kết nối", status)
         self.assertNotIn("super-secret-password", status)
         self.assertNotIn("private-secret", status)
 

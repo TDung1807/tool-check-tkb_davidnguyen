@@ -5,6 +5,7 @@
 *.pem
 *.key
 *service-account*.json
+client_secret*.json
 amazing-smile-441004-j1-58a596defc04.json
 
 # Personal contact data

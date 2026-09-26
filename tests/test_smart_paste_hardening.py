@@ -8,6 +8,7 @@ from googleapiclient.errors import HttpError
 from httplib2 import Response
 
 import calendar_sync
+import db
 import webhook_app
 from calendar_sync import CalendarConfigurationError, CalendarPersistenceError
 from smart_paste import (
@@ -179,6 +180,30 @@ class SmartPasteWebhookHardeningTests(unittest.TestCase):
     def setUp(self) -> None:
         webhook_app._SMART_PASTE_STATES.clear()
         webhook_app._ADD_FORM_STATES.clear()
+        self._user_patcher = patch(
+            "webhook_app.db.get_user",
+            side_effect=lambda telegram_id: (
+                db.User(
+                    telegram_id=123,
+                    mssv="student-123",
+                    encrypted_pass="encrypted-password",
+                    google_refresh_token="encrypted-refresh-token",
+                    google_calendar_id="calendar@example.test",
+                )
+                if telegram_id == 123
+                else None
+            ),
+        )
+        self._calendar_patcher = patch(
+            "webhook_app._get_cal_kwargs",
+            return_value={"calendar_service": MagicMock(), "calendar_id": "calendar@example.test"},
+        )
+        self._user_patcher.start()
+        self._calendar_patcher.start()
+
+    def tearDown(self) -> None:
+        self._calendar_patcher.stop()
+        self._user_patcher.stop()
 
     @staticmethod
     def _telegram_response(message_id: str = "m1") -> MagicMock:
