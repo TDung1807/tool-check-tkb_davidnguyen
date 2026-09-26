@@ -485,7 +485,7 @@ def _get_setup_url() -> str:
 def _require_user(token: str, chat_id: str) -> db.User | None:
     """Return User if fully connected, otherwise send setup prompt and return None."""
     user = db.get_user(int(chat_id))
-    if not user or not user.is_fully_connected():
+    if not user or not user.is_fully_setup:
         text = "⚠️ Bạn chưa kết nối với TDTU và Google Calendar.\nVui lòng bấm nút bên dưới để cài đặt."
         _send_text_with_keyboard(token, chat_id, text, _build_main_menu_keyboard(_get_setup_url()))
         return None
@@ -643,7 +643,7 @@ def telegram_webhook(
             }:
                 _answer_callback(token, callback_query)
                 if data == MENU_STATUS_CALLBACK:
-                    user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_connected() else None))
+                    user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_setup else None))
                     return {"ok": True}
                     
                 user = _require_user(token, chat_id)
@@ -972,7 +972,7 @@ def telegram_webhook(
             _send_main_menu(token, chat_id, prefix=START_HELP_TEXT if db.get_user(int(chat_id)) else "Chào bạn! Hãy cấu hình TDTU và Google Calendar để bắt đầu.")
             return {"ok": True}
         if command == "/status" and lowered == command_token:
-            user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_connected() else None))
+            user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_setup else None))
             return {"ok": True}
             
         user = _require_user(token, chat_id)
