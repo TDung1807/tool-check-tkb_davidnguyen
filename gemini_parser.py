@@ -204,7 +204,6 @@ JSON schema:
                 "temperature": 0,
                 "max_output_tokens": 2048,
                 "response_mime_type": "application/json",
-                "response_schema": SMART_PASTE_RESPONSE_SCHEMA,
             },
             request_options={"timeout": GEMINI_REQUEST_TIMEOUT_MS / 1000},
         )
