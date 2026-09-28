@@ -210,7 +210,7 @@ JSON schema:
 """.strip()
 
     try:
-        model = genai.GenerativeModel(DEFAULT_MODEL)
+        model = genai.GenerativeModel(FALLBACK_MODEL)
         response = model.generate_content(
             prompt,
             generation_config={
@@ -231,7 +231,7 @@ JSON schema:
     except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
         logger.warning(
             "Gemini multi-event parse failed model=%s type=%s error=%s",
-            DEFAULT_MODEL,
+            FALLBACK_MODEL,
             type(exc).__name__,
             str(exc)[:300],
         )
@@ -283,6 +283,7 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
                         "max_output_tokens": 2048,
                         "response_mime_type": "application/json",
                         "response_json_schema": SMART_PASTE_RESPONSE_SCHEMA,
+                        "automatic_function_calling": {"disable": True},
                     },
                 )
                 parsed = getattr(response, "parsed", None)
@@ -354,13 +355,18 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
 def _is_transient_gemini_error(exc: Exception) -> bool:
     """Return whether retrying the same Gemini request is likely to help."""
     status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-    if status_code in {429, 500, 502, 503, 504}:
+    # 408 Request Timeout, 429 Rate-limited, 499 Client Closed (server-side
+    # abort during overload), 500/502/503/504 server errors.
+    if status_code in {408, 429, 499, 500, 502, 503, 504}:
         return True
     error_name = type(exc).__name__.lower()
     error_text = str(exc).lower()
     return any(
         marker in error_name or marker in error_text
-        for marker in ("deadlineexceeded", "timeout", "temporarily unavailable", "high demand")
+        for marker in (
+            "deadlineexceeded", "timeout", "temporarily unavailable",
+            "high demand", "client closed",
+        )
     )
 
 
