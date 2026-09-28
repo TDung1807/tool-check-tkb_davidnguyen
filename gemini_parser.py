@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import time
 
 SYSTEM_PROMPT = """
 Bạn là trợ lý lịch hẹn của người dùng, có giọng nói dịu dàng, thân thiết, 
@@ -26,12 +27,14 @@ logger = logging.getLogger(__name__)
 
 # Keep the model configurable because model availability can differ by API key
 # and Google may restrict newer/low-cost models for some projects.
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 # Keep both attempts within a short user-facing latency budget.  A transient
 # Gemini outage should not make Telegram users wait through two 10-second calls.
 # The Gemini API rejects manually configured deadlines below 10 seconds.
 GEMINI_PRIMARY_TIMEOUT_MS = 10_000
 GEMINI_FALLBACK_TIMEOUT_MS = 4_000
+GEMINI_TRANSIENT_RETRIES = 1
+GEMINI_RETRY_DELAY_SECONDS = 0.5
 
 SMART_PASTE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -255,12 +258,14 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
     except ImportError:
         return _parse_events_with_legacy_sdk(text, reference_date=ref_date)
 
-    try:
-        client = genai.Client(
-            api_key=api_key,
-            http_options=types.HttpOptions(timeout=GEMINI_PRIMARY_TIMEOUT_MS),
-        )
+    primary_error: Exception | None = None
+    for attempt in range(GEMINI_TRANSIENT_RETRIES + 1):
+        client = None
         try:
+            client = genai.Client(
+                api_key=api_key,
+                http_options=types.HttpOptions(timeout=GEMINI_PRIMARY_TIMEOUT_MS),
+            )
             response = client.models.generate_content(
                 model=DEFAULT_MODEL,
                 contents=prompt,
@@ -276,21 +281,57 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
                 return parsed
             payload = _load_json(_extract_text(response))
             return payload if isinstance(payload, dict) else None
+        except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
+            primary_error = exc
+            if attempt < GEMINI_TRANSIENT_RETRIES and _is_transient_gemini_error(exc):
+                logger.warning(
+                    "Gemini transient failure model=%s attempt=%d/%d type=%s; retrying.",
+                    DEFAULT_MODEL,
+                    attempt + 1,
+                    GEMINI_TRANSIENT_RETRIES + 1,
+                    type(exc).__name__,
+                )
+                time.sleep(GEMINI_RETRY_DELAY_SECONDS)
+                continue
+            break
         finally:
-            close = getattr(client, "close", None)
-            if callable(close):
-                close()
-    except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
+            if client is not None:
+                close = getattr(client, "close", None)
+                if callable(close):
+                    close()
+
+    assert primary_error is not None
+    if _is_transient_gemini_error(primary_error):
         logger.warning(
-            "Gemini multi-event parse failed with google-genai model=%s type=%s error=%s; trying legacy SDK.",
+            "Gemini multi-event parse unavailable after retry model=%s type=%s error=%s.",
             DEFAULT_MODEL,
-            type(exc).__name__,
-            str(exc)[:300],
+            type(primary_error).__name__,
+            str(primary_error)[:300],
         )
-        fallback = _parse_events_with_legacy_sdk(text, reference_date=ref_date)
-        if fallback is not None:
-            logger.info("Gemini multi-event parse succeeded with legacy SDK fallback.")
-        return fallback
+        return None
+
+    logger.warning(
+        "Gemini multi-event parse failed with google-genai model=%s type=%s; trying legacy SDK.",
+        DEFAULT_MODEL,
+        type(primary_error).__name__,
+    )
+    fallback = _parse_events_with_legacy_sdk(text, reference_date=ref_date)
+    if fallback is not None:
+        logger.info("Gemini multi-event parse succeeded with legacy SDK fallback.")
+    return fallback
+
+
+def _is_transient_gemini_error(exc: Exception) -> bool:
+    """Return whether retrying the same Gemini request is likely to help."""
+    status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if status_code in {429, 500, 502, 503, 504}:
+        return True
+    error_name = type(exc).__name__.lower()
+    error_text = str(exc).lower()
+    return any(
+        marker in error_name or marker in error_text
+        for marker in ("deadlineexceeded", "timeout", "temporarily unavailable", "high demand")
+    )
 
 
 def generate_conversational_reply_with_gemini(text: str) -> str | None:

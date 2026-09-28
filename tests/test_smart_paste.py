@@ -180,6 +180,28 @@ class GeminiParserTests(unittest.TestCase):
 
         self.assertIsNone(res)
 
+    def test_transient_gemini_failure_retries_without_legacy_timeout(self) -> None:
+        class GeminiUnavailableError(Exception):
+            code = 503
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = [
+            GeminiUnavailableError("high demand"),
+            GeminiUnavailableError("high demand"),
+        ]
+
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "fake-key"}),
+            patch("google.genai.Client", return_value=mock_client),
+            patch("gemini_parser.time.sleep"),
+            patch("gemini_parser._parse_events_with_legacy_sdk") as legacy_parser,
+        ):
+            res = parse_events_with_gemini("Mai 14h họp nhóm")
+
+        self.assertIsNone(res)
+        self.assertEqual(mock_client.models.generate_content.call_count, 2)
+        legacy_parser.assert_not_called()
+
     def test_ambiguous_event(self) -> None:
         payload = {
             "events": [
