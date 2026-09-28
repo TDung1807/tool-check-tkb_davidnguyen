@@ -20,7 +20,7 @@ Google Calendar là nơi lưu trữ lịch. Telegram là giao diện thao tác.
 | Lệnh | Chức năng |
 | --- | --- |
 | `/start` | Mở menu và hướng dẫn kết nối |
-| `/status` | Xem trạng thái kết nối (tương thích) |
+| `/status` | Xem trạng thái kết nối |
 | `/today` | Xem lịch hôm nay |
 | `/schedule` | Cào và xem lịch tuần này |
 | `/deadline` | Xem deadline eLearning |
