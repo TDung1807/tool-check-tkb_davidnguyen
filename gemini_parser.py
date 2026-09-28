@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 # Keep the model configurable because model availability can differ by API key
 # and Google may restrict newer/low-cost models for some projects.
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
-GEMINI_REQUEST_TIMEOUT_MS = 10_000
+# Keep both attempts within a short user-facing latency budget.  A transient
+# Gemini outage should not make Telegram users wait through two 10-second calls.
+GEMINI_PRIMARY_TIMEOUT_MS = 5_000
+GEMINI_FALLBACK_TIMEOUT_MS = 4_000
 
 SMART_PASTE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -205,7 +208,7 @@ JSON schema:
                 "max_output_tokens": 2048,
                 "response_mime_type": "application/json",
             },
-            request_options={"timeout": GEMINI_REQUEST_TIMEOUT_MS / 1000},
+            request_options={"timeout": GEMINI_FALLBACK_TIMEOUT_MS / 1000},
         )
         raw_text = _extract_text(response)
         payload = _load_json(raw_text)
@@ -254,7 +257,7 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
     try:
         client = genai.Client(
             api_key=api_key,
-            http_options=types.HttpOptions(timeout=GEMINI_REQUEST_TIMEOUT_MS),
+            http_options=types.HttpOptions(timeout=GEMINI_PRIMARY_TIMEOUT_MS),
         )
         try:
             response = client.models.generate_content(
@@ -283,7 +286,10 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
             type(exc).__name__,
             str(exc)[:300],
         )
-        return _parse_events_with_legacy_sdk(text, reference_date=ref_date)
+        fallback = _parse_events_with_legacy_sdk(text, reference_date=ref_date)
+        if fallback is not None:
+            logger.info("Gemini multi-event parse succeeded with legacy SDK fallback.")
+        return fallback
 
 
 def generate_conversational_reply_with_gemini(text: str) -> str | None:
