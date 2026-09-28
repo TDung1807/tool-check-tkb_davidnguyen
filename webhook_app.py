@@ -506,13 +506,22 @@ def setup_tdtu(body: TDTUSetupRequest):
 
     # Validate TDTU login
     try:
-        from tdtu import TDTUClient
+        from tdtu import TDTUAuthenticationError, TDTUClient
         # TDTUClient receives credentials at construction time and login()
         # performs the network authentication without arguments.
         with TDTUClient(body.mssv, body.password):
             pass
-    except HTTPException:
-        raise
+    except TDTUAuthenticationError as exc:
+        # The portal uses a specific failure result for invalid credentials.
+        # Other authentication errors (network/protocol/redirect failures)
+        # should remain a generic service error for the Mini App.
+        if str(exc).startswith("Login failed with code:"):
+            raise HTTPException(
+                status_code=401,
+                detail="Sai mã số sinh viên hoặc mật khẩu TDTU.",
+            ) from exc
+        logger.error("TDTU authentication service error for %s: %s", telegram_id, type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Lỗi kết nối tới TDTU. Vui lòng thử lại sau.") from exc
     except Exception as exc:
         logger.error(f"Error checking TDTU login for {telegram_id}: {exc}")
         raise HTTPException(status_code=500, detail="Lỗi kết nối tới TDTU. Vui lòng thử lại sau.")
