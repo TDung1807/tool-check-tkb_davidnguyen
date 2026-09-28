@@ -28,12 +28,12 @@ logger = logging.getLogger(__name__)
 # Keep the model configurable because model availability can differ by API key
 # and Google may restrict newer/low-cost models for some projects.
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
+FALLBACK_MODEL = "gemini-2.5-flash-lite"
 # Keep both attempts within a short user-facing latency budget.  A transient
 # Gemini outage should not make Telegram users wait through two 10-second calls.
 # The Gemini API rejects manually configured deadlines below 10 seconds.
 GEMINI_PRIMARY_TIMEOUT_MS = 10_000
 GEMINI_FALLBACK_TIMEOUT_MS = 4_000
-GEMINI_TRANSIENT_RETRIES = 1
 GEMINI_RETRY_DELAY_SECONDS = 0.5
 
 SMART_PASTE_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -258,8 +258,9 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
     except ImportError:
         return _parse_events_with_legacy_sdk(text, reference_date=ref_date)
 
-    primary_error: Exception | None = None
-    for attempt in range(GEMINI_TRANSIENT_RETRIES + 1):
+    last_error: Exception | None = None
+    model_candidates = (DEFAULT_MODEL, FALLBACK_MODEL)
+    for model_index, model_name in enumerate(model_candidates):
         client = None
         try:
             client = genai.Client(
@@ -267,7 +268,7 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
                 http_options=types.HttpOptions(timeout=GEMINI_PRIMARY_TIMEOUT_MS),
             )
             response = client.models.generate_content(
-                model=DEFAULT_MODEL,
+                model=model_name,
                 contents=prompt,
                 config={
                     "temperature": 0,
@@ -282,14 +283,13 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
             payload = _load_json(_extract_text(response))
             return payload if isinstance(payload, dict) else None
         except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
-            primary_error = exc
-            if attempt < GEMINI_TRANSIENT_RETRIES and _is_transient_gemini_error(exc):
+            last_error = exc
+            if model_index < len(model_candidates) - 1 and _is_transient_gemini_error(exc):
                 logger.warning(
-                    "Gemini transient failure model=%s attempt=%d/%d type=%s; retrying.",
-                    DEFAULT_MODEL,
-                    attempt + 1,
-                    GEMINI_TRANSIENT_RETRIES + 1,
+                    "Gemini transient failure model=%s type=%s; trying fallback model=%s.",
+                    model_name,
                     type(exc).__name__,
+                    FALLBACK_MODEL,
                 )
                 time.sleep(GEMINI_RETRY_DELAY_SECONDS)
                 continue
@@ -300,20 +300,19 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
                 if callable(close):
                     close()
 
-    assert primary_error is not None
-    if _is_transient_gemini_error(primary_error):
+    assert last_error is not None
+    if _is_transient_gemini_error(last_error):
         logger.warning(
-            "Gemini multi-event parse unavailable after retry model=%s type=%s error=%s.",
-            DEFAULT_MODEL,
-            type(primary_error).__name__,
-            str(primary_error)[:300],
+            "Gemini multi-event parse unavailable after model fallback type=%s error=%s.",
+            type(last_error).__name__,
+            str(last_error)[:300],
         )
         return None
 
     logger.warning(
         "Gemini multi-event parse failed with google-genai model=%s type=%s; trying legacy SDK.",
-        DEFAULT_MODEL,
-        type(primary_error).__name__,
+        model_candidates[-1],
+        type(last_error).__name__,
     )
     fallback = _parse_events_with_legacy_sdk(text, reference_date=ref_date)
     if fallback is not None:
