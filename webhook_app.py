@@ -84,7 +84,7 @@ from telegram_mvp_bot import (
     _send_text_with_keyboard,
     _skip_add_form_optional_step,
 )
-from time_utils import local_today, period_time_range
+from time_utils import local_today, period_shift, period_time_range
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -129,22 +129,22 @@ START_HELP_TEXT = (
 
 
 def _build_main_menu_keyboard(setup_url: str | None = None) -> dict[str, list[list[dict[str, str]]]]:
-    """Return the primary menu so users do not need to remember commands."""
+    """primary menu"""
     keyboard = []
     if setup_url:
         keyboard.append([{"text": "🚀 Bắt đầu kết nối", "web_app": {"url": setup_url}}])
     keyboard.extend([
         [
-            {"text": "📅 Lịch hôm nay", "callback_data": MENU_TODAY_CALLBACK},
-            {"text": "🎓 Lịch tuần này", "callback_data": MENU_SCHEDULE_CALLBACK},
+            {"text": "Lịch hôm nay", "callback_data": MENU_TODAY_CALLBACK},
+            {"text": "Lịch tuần này", "callback_data": MENU_SCHEDULE_CALLBACK},
         ],
         [
-            {"text": "📝 Deadline", "callback_data": MENU_DEADLINE_CALLBACK},
-            {"text": "🧪 Lịch thi", "callback_data": MENU_EXAM_CALLBACK},
+            {"text": "Deadline", "callback_data": MENU_DEADLINE_CALLBACK},
+            {"text": "Lịch thi", "callback_data": MENU_EXAM_CALLBACK},
         ],
         [
-            {"text": "➕ Thêm lịch", "callback_data": MENU_ADD_CALLBACK},
-            {"text": "⚙️ Cài đặt", "callback_data": MENU_SETTINGS_CALLBACK},
+            {"text": "Thêm lịch", "callback_data": MENU_ADD_CALLBACK},
+            {"text": "Cài đặt", "callback_data": MENU_SETTINGS_CALLBACK},
         ],
     ])
     return {"inline_keyboard": keyboard}
@@ -153,9 +153,9 @@ def _build_main_menu_keyboard(setup_url: str | None = None) -> dict[str, list[li
 def _build_settings_keyboard() -> dict[str, list[list[dict[str, str]]]]:
     return {
         "inline_keyboard": [
-            [{"text": "🔌 Trạng thái kết nối", "callback_data": SETTINGS_STATUS_CALLBACK}],
-            [{"text": "🚪 Đăng xuất tất cả", "callback_data": SETTINGS_LOGOUT_CALLBACK}],
-            [{"text": "⬅️ Quay lại", "callback_data": SETTINGS_BACK_CALLBACK}],
+            [{"text": " Trạng thái kết nối", "callback_data": SETTINGS_STATUS_CALLBACK}],
+            [{"text": " Đăng xuất tất cả", "callback_data": SETTINGS_LOGOUT_CALLBACK}],
+            [{"text": " Quay lại", "callback_data": SETTINGS_BACK_CALLBACK}],
         ]
     }
 
@@ -186,11 +186,11 @@ def _current_week() -> tuple[dt.date, dt.date]:
 
 def _build_week_schedule_text(rows: list[dict], week_start: dt.date, week_end: dt.date) -> str:
     lines = [
-        f"📚 Lịch học tuần {week_start.strftime('%d/%m')}–{week_end.strftime('%d/%m/%Y')}",
+        f"Lịch học tuần {week_start.strftime('%d/%m')}–{week_end.strftime('%d/%m/%Y')}",
         "",
     ]
     if not rows:
-        lines.append("Không có lịch học trong tuần này.")
+        lines.append("Không có lịch học trong tuần này. Nhưng nhớ check lại thường xuyên nha broo")
         return "\n".join(lines)
     by_date: dict[str, list[dict]] = {}
     for row in rows:
@@ -200,24 +200,26 @@ def _build_week_schedule_text(rows: list[dict], week_start: dt.date, week_end: d
             label = dt.date.fromisoformat(date_key).strftime("%A %d/%m")
         except ValueError:
             label = date_key
-        lines.append(f"📅 {label}")
+        lines.append(f"{label}")
         for row in sorted(by_date[date_key], key=lambda x: str(x.get("start_time") or x.get("start_period") or "")):
             subject = str(row.get("subject_name") or "Môn học")
             computed_times = period_time_range(row.get("start_period"), row.get("end_period"))
             start = str(row.get("start_time") or (computed_times[0] if computed_times else "")).strip()[:5]
             end = str(row.get("end_time") or (computed_times[1] if computed_times else "")).strip()[:5]
             time_text = f"{start}–{end}" if start and end else "chưa rõ giờ"
+            shift = row.get("shift") or period_shift(row.get("start_period"))
+            slot_text = f"Ca {shift} · {time_text}" if shift else time_text
             room = f" · {row.get('room')}" if row.get("room") else ""
             status = str(row.get("status") or "scheduled").lower()
             marker = " ⚠️" if status in {"absent", "cancelled", "moved"} else ""
-            lines.append(f"• {time_text} · {subject}{room}{marker}")
+            lines.append(f"• {slot_text} · {subject}{room}{marker}")
         lines.append("")
     return "\n".join(lines).rstrip()
 
 
 def _schedule_preview_keyboard(token: str) -> dict[str, list[list[dict[str, str]]]]:
     return {"inline_keyboard": [[
-        {"text": "✅ Sync vào Google Calendar", "callback_data": f"{SCHEDULE_SYNC_PREFIX}{token}"},
+        {"text": "Đồng bộ vào Google Calendar", "callback_data": f"{SCHEDULE_SYNC_PREFIX}{token}"},
         {"text": "Bỏ qua", "callback_data": f"{SCHEDULE_CANCEL_PREFIX}{token}"},
     ]]}
 
@@ -256,12 +258,12 @@ def _send_week_schedule_preview(token: str, chat_id: str, user: db.User) -> None
         "user_id": user.telegram_id,
     }
     text = _build_week_schedule_text(rows, week_start, week_end)
-    text += "\n\nBạn có muốn đồng bộ tuần này vào Google Calendar không?"
+    text += "\n\nBạn có muốn đồng bộ lịch tuần này vào Google Calendar không?"
     _send_text_with_keyboard(token, chat_id, text, _schedule_preview_keyboard(preview_token))
 
 
 def _build_start_message(user: db.User | None) -> str:
-    """Build /start response with connection status shown immediately."""
+    """/start response with connection status shown immediately."""
     lines = [START_HELP_TEXT, "", _build_status_text(user)]
     if not user or not user.is_fully_setup:
         lines.extend(
@@ -519,7 +521,7 @@ def setup_tdtu(body: TDTUSetupRequest):
         if str(exc).startswith("Login failed with code:"):
             raise HTTPException(
                 status_code=401,
-                detail="Sai mã số sinh viên hoặc mật khẩu TDTU.",
+                detail="Sai MSSV hoặc mật khẩu.",
             ) from exc
         logger.error("TDTU authentication service error for %s: %s", telegram_id, type(exc).__name__)
         raise HTTPException(status_code=500, detail="Lỗi kết nối tới TDTU. Vui lòng thử lại sau.") from exc
@@ -552,7 +554,7 @@ def setup_google(state: str):
         
     user = db.get_user(telegram_id)
     if not user or not user.has_tdtu:
-        raise HTTPException(status_code=400, detail="Vui lòng kết nối TDTU trước.")
+        raise HTTPException(status_code=400, detail="Vui lòng kết nối tài khoản portal trước.")
         
     # Redirect URL matches our callback endpoint
     host = os.environ.get("TELEGRAM_WEBHOOK_URL", "").replace("/telegram/webhook", "")
@@ -593,7 +595,7 @@ def google_callback(
         
         # Send confirmation message to user
         token, _, _ = _load_env()
-        text = "✅ *Kết nối thành công!*\n\nTài khoản của bạn đã được kết nối với hệ thống.\nHàng ngày vào lúc 5h sáng, bot sẽ tự động lấy lịch học mới nhất và đồng bộ lên Google Calendar.\n\nDùng lệnh /today, /schedule, hoặc /exam để xem ngay."
+        text = "✅ *Kết nối thành công!*\n\nTài khoản portal và google của bạn đã được kết nối với hệ thống.\nHàng ngày vào lúc 5h sáng, bot sẽ tự động kiểm tra lịch mới nhất rồi thông báo cho bạn và cập nhật Google Calendar nếu có thay đổi.\n\nDùng lệnh /today, /schedule, hoặc /exam để xem ngay."
         try:
             _send_text_with_keyboard(token, str(telegram_id), text, _build_main_menu_keyboard())
         except Exception:
@@ -632,7 +634,7 @@ def _require_user(token: str, chat_id: str) -> db.User | None:
     """Return User if fully connected, otherwise send setup prompt and return None."""
     user = db.get_user(int(chat_id))
     if not user or not user.is_fully_setup:
-        text = "⚠️ Bạn chưa kết nối với TDTU và Google Calendar.\nVui lòng bấm nút bên dưới để cài đặt."
+        text = "⚠️ Bạn chưa kết nối với tài khoản portal và Google Calendar.\nVui lòng bấm nút bên dưới để tiến hành kết nối."
         _send_text_with_keyboard(token, chat_id, text, _build_main_menu_keyboard(_get_setup_url()))
         return None
     return user
@@ -864,12 +866,12 @@ def telegram_webhook(
                     _send_text_with_keyboard(
                         token,
                         chat_id,
-                        "✅ Đã đăng xuất tất cả và xóa thông tin kết nối TDTU/Google Calendar khỏi bot.",
+                        "✅ Đã đăng xuất tất cả và xóa thông tin kết nối portal/Google Calendar khỏi bot.",
                         _build_main_menu_keyboard(_get_setup_url()),
                     )
                 except Exception:
                     logger.exception("Could not log out user %s", chat_id)
-                    _send_text(token, chat_id, "⚠️ Đăng xuất thất bại. Bạn thử lại sau nhé.")
+                    _send_text(token, chat_id, "⚠️ Đăng xuất thất bại. Hãy thử lại.")
                 return {"ok": True}
 
             if data.startswith("deadline:"):
@@ -885,7 +887,7 @@ def telegram_webhook(
                 preview = _SCHEDULE_PREVIEWS.get(chat_id)
                 action, preview_token = data.split(":", 1)
                 if not preview or preview.get("token") != preview_token:
-                    _send_text(token, chat_id, "Preview lịch học đã hết hạn. Bạn bấm Lịch học để lấy lại nhé.")
+                    _send_text(token, chat_id, "Preview lịch học đã hết hạn. Bạn bấm Lịch học để xem lại nhé.")
                     return {"ok": True}
                 if action == "schedule_cancel":
                     _SCHEDULE_PREVIEWS.pop(chat_id, None)
@@ -902,7 +904,7 @@ def telegram_webhook(
                         user.mssv,
                         **_get_cal_kwargs(user),
                     )
-                    _send_text(token, chat_id, "✅ Đã đồng bộ lịch học tuần này vào Google Calendar.")
+                    _send_text(token, chat_id, "Ok bro! Đã đồng bộ lịch học tuần này vào Google Calendar.")
                 except Exception as exc:
                     logger.exception("On-demand weekly Calendar sync failed for user %s", user.telegram_id)
                     _send_text(token, chat_id, f"⚠️ Sync Google Calendar thất bại: {exc}")
@@ -952,7 +954,7 @@ def telegram_webhook(
 
             action, batch_id = _parse_smart_paste_callback(data, chat_id)
             if action == "unknown" or not batch_id:
-                _send_text(token, chat_id, "Nút Smart Paste này đã hết hạn. Bạn hãy dán lại nội dung nhé.")
+                _send_text(token, chat_id, "Smart Paste này đã hết hạn. Bạn hãy dán lại nội dung nhé.")
                 return {"ok": True}
             if action == "cancel":
                 callback_message_id = _callback_message_id(callback_query)

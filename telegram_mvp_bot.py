@@ -365,11 +365,11 @@ def _build_smart_paste_preview_text(events: list[dict]) -> str:
             except (TypeError, ValueError):
                 item_lines.append(f"⏰ {s}")
         else:
-            item_lines.append("⏰ Cả ngày")
+            item_lines.append("Cả ngày")
         if location:
             item_lines.append(f"📍 {location}")
         if note:
-            item_lines.append(f"📝 {note}")
+            item_lines.append(f"{note}")
         blocks.append("\n".join(item_lines))
     blocks.append("Kiểm tra lại trước khi lưu nhé.")
     return "\n\n".join(blocks)
@@ -484,7 +484,7 @@ def _parse_clock_field(raw: str) -> str:
 def _build_schedule_text(rows: list[dict], target_date: dt.date) -> str:
     lines = [f"Lịch học ngày {target_date.strftime('%d/%m/%Y')}:"]
     if not rows:
-        lines.append("- Không có lịch học.")
+        lines.append("- Không có lịch học. Đã nha broo")
         return "\n".join(lines)
     for idx, row in enumerate(rows, start=1):
         subject = row.get("subject_name") or "Môn học"
@@ -546,7 +546,7 @@ def _format_progress(row: dict) -> str:
 
 def _build_deadline_list_text(rows: list[dict]) -> str:
     if not rows:
-        return "Không tìm thấy deadline chưa hoàn thành sắp tới."
+        return "Không tìm thấy deadline chưa hoàn thành sắp tới. Đã nha bro"
     lines = [f"Có {len(rows)} deadline sắp tới:"]
     from course_aliases import shorten_course_name
 
@@ -562,7 +562,7 @@ def _build_deadline_list_text(rows: list[dict]) -> str:
 
 def _build_deadline_detail_text(row: dict | None) -> str:
     if not row:
-        return "Không tìm thấy deadline cho môn này."
+        return "Không tìm thấy deadline cho môn này. Đã nha bro"
     from course_aliases import shorten_course_name
 
     course_name, activity = _deadline_title_parts(row)
@@ -625,7 +625,7 @@ def _format_calendar_event_time(value: object) -> str:
 
 def _build_exam_list_text(rows: list[dict]) -> str:
     if not rows:
-        return "Không tìm thấy lịch thi trong 90 ngày tới."
+        return "Không tìm thấy lịch thi trong 90 ngày tới. Chill đi"
     lines = [f"Có {len(rows)} lịch thi trong 90 ngày tới:"]
     for row in rows:
         title = str(row.get("title") or "Lịch thi").removeprefix("[EXAM] ")
@@ -832,7 +832,7 @@ def _fallback_conversational_reply(user_text: str) -> str:
     lower = user_text.lower()
     if any(word in lower for word in ("chào", "hello", "hi")):
         return "Chào bạn, mình đây nè. Bạn muốn mình nhắc lịch hay trò chuyện một chút?"
-    if "cảm ơn" in lower:
+    if "cảm ơn" in lower or "tks" in lower or "thanks" in lower:
         return "Không có gì đâu, mình luôn sẵn sàng hỗ trợ bạn nè."
     if "buồn" in lower or "mệt" in lower:
         return "Ôm tinh thần bạn một cái nhẹ nha, nghỉ một chút rồi mình cùng sắp xếp lại lịch cho dễ thở hơn."
