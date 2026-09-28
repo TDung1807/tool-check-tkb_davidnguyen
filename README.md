@@ -1,6 +1,6 @@
 # TDTU Calendar Bot
 
-Telegram bot hỗ trợ sinh viên TDTU kết nối tài khoản TDTU và Google Calendar, xem lịch học/lịch thi/deadline, đồng bộ dữ liệu và thêm lịch cá nhân bằng Smart Paste.
+Telegram bot hỗ trợ sinh viên TDTU kết nối tài khoản TDTU portal và Google Calendar, xem lịch học/lịch thi/deadline, đồng bộ dữ liệu và thêm lịch cá nhân bằng Smart Paste.
 
 ## Kiến trúc hiện tại
 
@@ -41,69 +41,18 @@ Mỗi môn học được hiển thị với ca và giờ theo bảng phân ti�
 Trong luồng tự động 05:00, bot nhận diện thay đổi về môn, giờ, phòng và trạng thái;
 sau khi đồng bộ sẽ gửi thông báo chi tiết cho user.
 
-Người dùng mới chọn **Bắt đầu kết nối**, nhập MSSV/mật khẩu TDTU trong Mini App, sau đó cấp quyền Google Calendar.
+Người dùng mới chọn **Bắt đầu kết nối**, nhập MSSV/mật khẩu TDTU portal trong Mini App, sau đó cấp quyền Google Calendar.
 
-## Cấu hình Render
 
-Vào Render → service → **Environment** và cấu hình:
-
-```dotenv
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_WEBHOOK_URL=https://tool-check-tkb-davidnguyen.onrender.com/telegram/webhook
-TELEGRAM_WEBHOOK_SECRET=...
-
-SUPABASE_URL=https://<project>.supabase.co
-SUPABASE_KEY=<service_role_key>
-ENCRYPTION_KEY=<fernet_key>
-
-GOOGLE_OAUTH_CLIENT_JSON={...}
-GEMINI_API_KEY=...
-APP_TIMEZONE=Asia/Ho_Chi_Minh
-```
-
-`TELEGRAM_WEBHOOK_URL` phải đúng tuyệt đối với domain production. Sau khi lưu biến môi trường, chọn **Save and deploy**.
-
-Health check:
-
-```text
-https://tool-check-tkb-davidnguyen.onrender.com/health
-```
-
-## Google OAuth
-
-Trong Google Cloud Console, thêm Authorized redirect URI:
-
-```text
-https://tool-check-tkb-davidnguyen.onrender.com/api/setup/google/callback
-```
-
-URI phải khớp tuyệt đối, gồm scheme, domain và path.
-
-## Supabase
-
-Chạy toàn bộ nội dung [`schema.sql`](schema.sql) trong Supabase SQL Editor trước khi cho người dùng kết nối bot.
-
-`SUPABASE_KEY` trên Render phải là service-role key vì bot cần truy cập bảng người dùng phía server. Không đưa key này vào frontend hoặc commit vào Git.
-
-## GitHub Actions
-
-- `Python tests`: chạy compile và toàn bộ test suite khi push hoặc mở pull request.
-- `Morning Schedule Sync`: chạy `python run_hour.py --morning` theo lịch 05:00 giờ Việt Nam và khi bấm thủ công.
-- `Keep Render Awake`: gọi `/health` định kỳ để hạn chế service free bị ngủ.
-
-Workflow morning cần các GitHub Secrets:
-
-```text
-SUPABASE_URL
-SUPABASE_KEY
-ENCRYPTION_KEY
-GOOGLE_OAUTH_CLIENT_JSON
-TELEGRAM_BOT_TOKEN
-```
 
 ## Bảo mật
+- Mật khẩu TDTU portal và Google refresh token được mã hóa thành `ENCRYPTION_KEY` bằng Fernet trước khi lưu Supabase kể cả admin cũng không thể đọc được ở dạng plain text.
+- Cam kết không dùng `GOOGLE_CALENDAR_ID=primary`; Google OAuth sẽ tạo/chọn Calendar riêng cho từng user.
 
-- Không commit `.env`, OAuth client secret, service-account JSON hoặc token.
-- Mật khẩu TDTU và Google refresh token được mã hóa bằng `ENCRYPTION_KEY` trước khi lưu Supabase.
-- Không dùng `GOOGLE_CALENDAR_ID=primary`; Google OAuth sẽ tạo/chọn Calendar riêng cho từng user.
-- Khi secret bị lộ, rotate ngay trên Telegram, Google Cloud, Supabase hoặc Render tương ứng.
+## Lưu ý 
+**Bot không có giá trị và quyền thay thế hoàn toàn lịch học chính thức trên portal và app TDT student**
+**Mọi hành động đăng nhập và cung cấp thông tin đều do người dùng quyết định**
+
+## Bản fork được chỉnh sửa lại từ bản chính với mục đích chính là dễ dùng hơn cho non-tech users.
+
+## Mọi thắc mắc về bản fork này liên hệ về gmail : nguyenntienndungg18@gmail.com
