@@ -246,8 +246,8 @@
             if (urlParams.get('google') === 'success') {
                 showStep(stepSuccess);
                 setTimeout(() => {
-                    tg.close();
-                }, 3000);
+                    if (typeof tg.close === 'function') tg.close();
+                }, 700);
                 return;
             }
 

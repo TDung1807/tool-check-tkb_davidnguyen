@@ -176,12 +176,6 @@ def _build_status_text(user: db.User | None = None) -> str:
     lines = ["⚙️ Trạng thái kết nối:", ""]
     for name, ready in checks:
         lines.append(f"{'✅' if ready else '⚠️'} {name}: {'Đã kết nối' if ready else 'Chưa kết nối'}")
-    lines.extend(
-        [
-            "",
-            "Mình không hiển thị lại mật khẩu vì lý do bảo mật."
-        ]
-    )
     return "\n".join(lines)
 
 
@@ -595,6 +589,15 @@ def google_callback(
         except Exception:
             pass
             
+        # OAuth usually finishes in the system browser. Return to the bot's
+        # Telegram deep link so the user lands back in the chat automatically.
+        try:
+            bot_username = str(((_telegram_post(token, "getMe").get("result") or {}).get("username") or "")).strip()
+        except Exception:
+            logger.warning("Could not resolve bot username for Telegram deep link.")
+            bot_username = ""
+        if bot_username:
+            return RedirectResponse(f"https://t.me/{bot_username}?start=connected")
         return RedirectResponse("/app?google=success")
     except ValueError as exc:
         logger.warning("Google OAuth callback rejected: %s", exc)
