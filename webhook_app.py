@@ -485,7 +485,12 @@ def gemini_health(
             sdk_name = "google-generativeai-legacy"
         except ImportError:
             pass
-    return {"api_key_set": api_key_set, "sdk_available": sdk_available, "sdk": sdk_name}
+    return {
+        "api_key_set": api_key_set,
+        "sdk_available": sdk_available,
+        "sdk": sdk_name,
+        "model": os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip(),
+    }
 
 
 @app.get("/app")

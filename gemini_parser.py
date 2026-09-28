@@ -278,8 +278,13 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
             if callable(close):
                 close()
     except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
-        logger.warning("Gemini multi-event parse failed: %s", type(exc).__name__)
-        return None
+        logger.warning(
+            "Gemini multi-event parse failed with google-genai model=%s type=%s error=%s; trying legacy SDK.",
+            DEFAULT_MODEL,
+            type(exc).__name__,
+            str(exc)[:300],
+        )
+        return _parse_events_with_legacy_sdk(text, reference_date=ref_date)
 
 
 def generate_conversational_reply_with_gemini(text: str) -> str | None:
