@@ -88,6 +88,41 @@ def _schedule_key(item: dict) -> tuple[str, ...]:
     )
 
 
+def _schedule_identity(item: dict) -> tuple[str, ...]:
+    """Identify a class while allowing its room/status/time to change."""
+    return (
+        str(item.get("session_date") or item.get("date") or "").strip(),
+        str(item.get("subject_name") or item.get("subject") or "").strip().lower(),
+        str(item.get("start_period") or item.get("start_time") or "").strip(),
+        str(item.get("end_period") or item.get("end_time") or "").strip(),
+    )
+
+
+def _format_schedule_detail(item: dict) -> str:
+    subject = str(item.get("subject_name") or item.get("subject") or "Môn học").strip()
+    date = str(item.get("session_date") or item.get("date") or "").strip()
+    try:
+        date = __import__("datetime").date.fromisoformat(date).strftime("%d/%m/%Y")
+    except ValueError:
+        date = date or "chưa rõ ngày"
+    start = str(item.get("start_time") or "").strip()[:5]
+    end = str(item.get("end_time") or "").strip()[:5]
+    if start and end:
+        time_text = f"{start}–{end}"
+    else:
+        time_text = "chưa rõ giờ"
+    room = str(item.get("room") or "").strip() or "chưa rõ phòng"
+    status = str(item.get("status") or "scheduled").strip().lower()
+    status_text = {
+        "scheduled": "học bình thường",
+        "absent": "báo vắng",
+        "cancelled": "đã hủy",
+        "makeup": "học bù",
+        "moved": "đã chuyển lịch",
+    }.get(status, status)
+    return f"{subject} — {date} — {time_text} — phòng {room} — {status_text}"
+
+
 def _format_absence_detail(item: dict) -> str:
     subject = str(item.get("subject_name") or item.get("subject") or "Môn học").strip()
     date = str(item.get("session_date") or item.get("date") or "").strip()
@@ -124,14 +159,33 @@ def _diff_summary(
     current_schedule = new_schedule or []
     current_exams = new_exams or []
 
-    old_schedule_by_key = {_schedule_key(item): item for item in old_schedule if isinstance(item, dict)}
-    new_schedule_by_key = {_schedule_key(item): item for item in current_schedule if isinstance(item, dict)}
-    added = len(set(new_schedule_by_key) - set(old_schedule_by_key))
-    removed = len(set(old_schedule_by_key) - set(new_schedule_by_key))
-    if added:
-        parts.append(f"- Thêm: {added} tiết")
-    if removed:
-        parts.append(f"- Xóa: {removed} tiết")
+    old_schedule_by_key = {_schedule_identity(item): item for item in old_schedule if isinstance(item, dict)}
+    new_schedule_by_key = {_schedule_identity(item): item for item in current_schedule if isinstance(item, dict)}
+    added_keys = set(new_schedule_by_key) - set(old_schedule_by_key)
+    removed_keys = set(old_schedule_by_key) - set(new_schedule_by_key)
+    if added_keys:
+        parts.append(f"- Thêm môn/tiết: {len(added_keys)}")
+        parts.extend(f"  - {_format_schedule_detail(new_schedule_by_key[key])}" for key in sorted(added_keys))
+    if removed_keys:
+        parts.append(f"- Xóa môn/tiết: {len(removed_keys)}")
+        parts.extend(f"  - {_format_schedule_detail(old_schedule_by_key[key])}" for key in sorted(removed_keys))
+
+    modified: list[str] = []
+    for key in sorted(set(old_schedule_by_key) & set(new_schedule_by_key)):
+        old_item = old_schedule_by_key[key]
+        new_item = new_schedule_by_key[key]
+        changed_fields = []
+        for field, label in (("start_time", "giờ học"), ("end_time", "giờ kết thúc"), ("room", "phòng"), ("status", "trạng thái")):
+            if str(old_item.get(field) or "").strip().lower() != str(new_item.get(field) or "").strip().lower():
+                changed_fields.append(label)
+        if changed_fields:
+            modified.append(
+                f"   Từ  -->  {_format_schedule_detail(old_item)}\n"
+                f"   Thành  -->  {_format_schedule_detail(new_item)}"
+            )
+    if modified:
+        parts.append("- Cập nhật môn/tiết:")
+        parts.extend(modified)
 
     newly_absent = [
         item

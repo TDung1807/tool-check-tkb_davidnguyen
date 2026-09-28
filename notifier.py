@@ -163,10 +163,9 @@ def send_change_notification(telegram_id: int, changes_summary: str | None) -> N
 
     summary = _escape(changes_summary or "Có thay đổi trong lịch")
     text = (
-        "🔔 *Thời khóa biểu đã thay đổi*\n\n"
+        "🔔 *Phát hiện thời khóa biểu đã thay đổi*\n\n"
         f"{summary}\n\n"
-        "_Đã cập nhật Google Calendar\\._\n"
-        "_Vào app TDTU Student để xem chi tiết môn học thay đổi\\._"
+        "_Đã cập nhật thay đổi ở Google Calendar\\._"
     )
     try:
         _send_message(token, str(telegram_id), text)

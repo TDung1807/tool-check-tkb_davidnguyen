@@ -113,11 +113,10 @@ class NotifierFormattingTests(unittest.TestCase):
             )
 
         message = send_message.call_args.args[2]
-        self.assertIn("Thời khóa biểu đã thay đổi", message)
+        self.assertIn("Phát hiện thời khóa biểu đã thay đổi", message)
         self.assertIn("Thêm: 2 tiết", message)
         self.assertIn("Báo vắng: 1 tiết", message)
-        self.assertIn("Đã cập nhật Google Calendar", message)
-        self.assertIn("app TDTU Student", message)
+        self.assertIn("Đã cập nhật thay đổi ở Google Calendar", message)
 
 
 if __name__ == "__main__":

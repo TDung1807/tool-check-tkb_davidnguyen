@@ -20,17 +20,26 @@ Google Calendar là nơi lưu trữ lịch. Telegram là giao diện thao tác.
 | Lệnh | Chức năng |
 | --- | --- |
 | `/start` | Mở menu và hướng dẫn kết nối |
-| `/status` | Xem trạng thái kết nối |
+| `/status` | Xem trạng thái kết nối (tương thích) |
 | `/today` | Xem lịch hôm nay |
-| `/schedule` | Xem lịch học |
+| `/schedule` | Cào và xem lịch tuần này |
 | `/deadline` | Xem deadline eLearning |
 | `/exam` | Xem lịch thi |
 | `/add` | Thêm lịch thủ công |
 
-Khi chọn **Lịch học** hoặc dùng `/schedule` không kèm ngày, bot sẽ cào toàn bộ
+Khi chọn **Lịch tuần này** hoặc dùng `/schedule` không kèm ngày, bot sẽ cào toàn bộ
 tuần hiện tại từ cổng TDTU, gửi bản xem trước theo từng ngày và hỏi trước khi
 đồng bộ tuần đó vào Google Calendar. Luồng tự động lúc 05:00 vẫn tiếp tục kiểm
 tra thay đổi và đồng bộ như cũ.
+
+Menu **Cài đặt** gồm:
+
+- **Trạng thái kết nối**: kiểm tra kết nối TDTU, Google Calendar và Smart Paste.
+- **Đăng xuất tất cả**: xóa thông tin kết nối TDTU/Google khỏi bot và vô hiệu hóa tài khoản.
+
+Mỗi môn học được hiển thị với ca và giờ theo bảng phân tiết chính thức của TDTU.
+Trong luồng tự động 05:00, bot nhận diện thay đổi về môn, giờ, phòng và trạng thái;
+sau khi đồng bộ sẽ gửi thông báo chi tiết cho user.
 
 Người dùng mới chọn **Bắt đầu kết nối**, nhập MSSV/mật khẩu TDTU trong Mini App, sau đó cấp quyền Google Calendar.
 
@@ -76,27 +85,6 @@ Chạy toàn bộ nội dung [`schema.sql`](schema.sql) trong Supabase SQL Edito
 
 `SUPABASE_KEY` trên Render phải là service-role key vì bot cần truy cập bảng người dùng phía server. Không đưa key này vào frontend hoặc commit vào Git.
 
-## Chạy local
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-```
-
-Điền các biến trong `.env`, sau đó chạy webhook:
-
-```bash
-./start.sh
-```
-
-Chạy đồng bộ thủ công cho toàn bộ user:
-
-```bash
-python run_hour.py --morning
-```
-
 ## GitHub Actions
 
 - `Python tests`: chạy compile và toàn bộ test suite khi push hoặc mở pull request.
@@ -111,19 +99,6 @@ SUPABASE_KEY
 ENCRYPTION_KEY
 GOOGLE_OAUTH_CLIENT_JSON
 TELEGRAM_BOT_TOKEN
-```
-
-## Kiểm tra
-
-```bash
-python -m pytest -q
-python -m compileall -q .
-```
-
-Playwright cần có Chromium:
-
-```bash
-playwright install chromium
 ```
 
 ## Bảo mật
