@@ -128,6 +128,9 @@ def upsert_user(telegram_id: int, **kwargs: object) -> User:
         upsert_user(12345, mssv="205xxxx", encrypted_pass="gAAAA...")
     """
     client = _get_client()
+    # A fresh TDTU login also reactivates an account previously logged out.
+    if kwargs.get("encrypted_pass"):
+        kwargs.setdefault("is_active", True)
 
     # PostgREST upsert treats the payload as a complete row when inserting.
     # That makes a partial update (for example, saving Google credentials for

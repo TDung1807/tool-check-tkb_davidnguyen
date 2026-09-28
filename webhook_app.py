@@ -112,7 +112,12 @@ MENU_SCHEDULE_CALLBACK = f"{MENU_CALLBACK_PREFIX}schedule"
 MENU_DEADLINE_CALLBACK = f"{MENU_CALLBACK_PREFIX}deadline"
 MENU_EXAM_CALLBACK = f"{MENU_CALLBACK_PREFIX}exam"
 MENU_ADD_CALLBACK = f"{MENU_CALLBACK_PREFIX}add"
-MENU_STATUS_CALLBACK = f"{MENU_CALLBACK_PREFIX}status"
+MENU_SETTINGS_CALLBACK = f"{MENU_CALLBACK_PREFIX}settings"
+# Backward-compatible name for callers/tests that still import this constant.
+MENU_STATUS_CALLBACK = MENU_SETTINGS_CALLBACK
+SETTINGS_STATUS_CALLBACK = "settings:status"
+SETTINGS_LOGOUT_CALLBACK = "settings:logout"
+SETTINGS_BACK_CALLBACK = "settings:back"
 START_HELP_TEXT = (
     "Chào bạn! Mình có thể giúp bạn xem lịch học, lịch thi, deadline "
     "và thêm lịch cá nhân.\n\n"
@@ -131,7 +136,7 @@ def _build_main_menu_keyboard(setup_url: str | None = None) -> dict[str, list[li
     keyboard.extend([
         [
             {"text": "📅 Lịch hôm nay", "callback_data": MENU_TODAY_CALLBACK},
-            {"text": "🎓 Lịch học", "callback_data": MENU_SCHEDULE_CALLBACK},
+            {"text": "🎓 Lịch tuần này", "callback_data": MENU_SCHEDULE_CALLBACK},
         ],
         [
             {"text": "📝 Deadline", "callback_data": MENU_DEADLINE_CALLBACK},
@@ -139,10 +144,20 @@ def _build_main_menu_keyboard(setup_url: str | None = None) -> dict[str, list[li
         ],
         [
             {"text": "➕ Thêm lịch", "callback_data": MENU_ADD_CALLBACK},
-            {"text": "⚙️ Trạng thái", "callback_data": MENU_STATUS_CALLBACK},
+            {"text": "⚙️ Cài đặt", "callback_data": MENU_SETTINGS_CALLBACK},
         ],
     ])
     return {"inline_keyboard": keyboard}
+
+
+def _build_settings_keyboard() -> dict[str, list[list[dict[str, str]]]]:
+    return {
+        "inline_keyboard": [
+            [{"text": "🔌 Trạng thái kết nối", "callback_data": SETTINGS_STATUS_CALLBACK}],
+            [{"text": "🚪 Đăng xuất tất cả", "callback_data": SETTINGS_LOGOUT_CALLBACK}],
+            [{"text": "⬅️ Quay lại", "callback_data": SETTINGS_BACK_CALLBACK}],
+        ]
+    }
 
 
 def _build_status_text(user: db.User | None = None) -> str:
@@ -757,11 +772,11 @@ def telegram_webhook(
                 MENU_DEADLINE_CALLBACK,
                 MENU_EXAM_CALLBACK,
                 MENU_ADD_CALLBACK,
-                MENU_STATUS_CALLBACK,
+                MENU_SETTINGS_CALLBACK,
             }:
                 _answer_callback(token, callback_query)
-                if data == MENU_STATUS_CALLBACK:
-                    user = db.get_user(int(chat_id)); _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_setup else None))
+                if data == MENU_SETTINGS_CALLBACK:
+                    _send_text_with_keyboard(token, chat_id, "⚙️ Cài đặt", _build_settings_keyboard())
                     return {"ok": True}
                     
                 user = _require_user(token, chat_id)
@@ -812,6 +827,36 @@ def telegram_webhook(
                         _build_status_text(),
                         _build_main_menu_keyboard(),
                     )
+                return {"ok": True}
+
+            if data in {SETTINGS_STATUS_CALLBACK, SETTINGS_LOGOUT_CALLBACK, SETTINGS_BACK_CALLBACK}:
+                _answer_callback(token, callback_query)
+                if data == SETTINGS_BACK_CALLBACK:
+                    user = db.get_user(int(chat_id))
+                    _send_text_with_keyboard(
+                        token,
+                        chat_id,
+                        START_HELP_TEXT,
+                        _build_main_menu_keyboard(_get_setup_url() if not user or not user.is_fully_setup else None),
+                    )
+                    return {"ok": True}
+                if data == SETTINGS_STATUS_CALLBACK:
+                    user = db.get_user(int(chat_id))
+                    _send_text_with_keyboard(token, chat_id, _build_status_text(user), _build_settings_keyboard())
+                    return {"ok": True}
+                try:
+                    db.deactivate_user(int(chat_id))
+                    _SCHEDULE_PREVIEWS.pop(chat_id, None)
+                    _ADD_FORM_STATES.pop(chat_id, None)
+                    _send_text_with_keyboard(
+                        token,
+                        chat_id,
+                        "✅ Đã đăng xuất tất cả và xóa thông tin kết nối TDTU/Google Calendar khỏi bot.",
+                        _build_main_menu_keyboard(_get_setup_url()),
+                    )
+                except Exception:
+                    logger.exception("Could not log out user %s", chat_id)
+                    _send_text(token, chat_id, "⚠️ Đăng xuất thất bại. Bạn thử lại sau nhé.")
                 return {"ok": True}
 
             if data.startswith("deadline:"):
