@@ -811,9 +811,9 @@ def _build_appointment_confirmation(title: str, appt_date: dt.date, start_time: 
 
 def _build_today_appointments_text(rows: list[dict]) -> str:
     today = local_today().strftime("%d/%m/%Y")
-    lines = [f"Lich hen hom nay ({today}):"]
+    lines = [f"Lịch hôm nay ({today}):"]
     if not rows:
-        lines.append("- Khong co lich hen.")
+        lines.append("- Không có lịch hẹn ngày hôm nay. Chill bro")
         return "\n".join(lines)
 
     for idx, row in enumerate(rows, start=1):
