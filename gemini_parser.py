@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip() or "gemini-3.1-flash-lite"
 # Keep both attempts within a short user-facing latency budget.  A transient
 # Gemini outage should not make Telegram users wait through two 10-second calls.
-GEMINI_PRIMARY_TIMEOUT_MS = 5_000
+# The Gemini API rejects manually configured deadlines below 10 seconds.
+GEMINI_PRIMARY_TIMEOUT_MS = 10_000
 GEMINI_FALLBACK_TIMEOUT_MS = 4_000
 
 SMART_PASTE_RESPONSE_SCHEMA: dict[str, Any] = {
