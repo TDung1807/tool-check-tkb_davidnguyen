@@ -27,14 +27,20 @@ logger = logging.getLogger(__name__)
 
 # Keep the model configurable because model availability can differ by API key
 # and Google may restrict newer/low-cost models for some projects.
-DEFAULT_MODEL = "gemini-3.1-flash-lite"
-FALLBACK_MODEL = "gemini-3.5-flash-lite"
-# Keep both attempts within a short user-facing latency budget.  A transient
-# Gemini outage should not make Telegram users wait through two 10-second calls.
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
+FALLBACK_MODEL = "gemini-3.1-flash-lite"
+# Keep all attempts within a reasonable user-facing latency budget.  A transient
+# Gemini outage should not make Telegram users wait forever, but we give the
+# fallback model a bit more breathing room since the primary already failed.
 # The Gemini API rejects manually configured deadlines below 10 seconds.
 GEMINI_PRIMARY_TIMEOUT_MS = 10_000
-GEMINI_FALLBACK_TIMEOUT_MS = 4_000
-GEMINI_RETRY_DELAY_SECONDS = 0.5
+GEMINI_FALLBACK_TIMEOUT_MS = 15_000
+# Exponential backoff: delay = base * 2^attempt  (0.5s → 1s → 2s)
+GEMINI_RETRY_BASE_DELAY_SECONDS = 0.5
+# How many times to retry the *same* model on a transient error before moving
+# on to the next candidate.  Two retries per model gives a good balance between
+# resilience during short server overload spikes and user-facing latency.
+GEMINI_MAX_RETRIES_PER_MODEL = 2
 
 SMART_PASTE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -261,49 +267,74 @@ def parse_events_with_gemini(text: str, *, reference_date: dt.date | None = None
     last_error: Exception | None = None
     model_candidates = (DEFAULT_MODEL, FALLBACK_MODEL)
     for model_index, model_name in enumerate(model_candidates):
-        client = None
-        try:
-            client = genai.Client(
-                api_key=api_key,
-                http_options=types.HttpOptions(timeout=GEMINI_PRIMARY_TIMEOUT_MS),
-            )
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config={
-                    "temperature": 0,
-                    "max_output_tokens": 2048,
-                    "response_mime_type": "application/json",
-                    "response_json_schema": SMART_PASTE_RESPONSE_SCHEMA,
-                },
-            )
-            parsed = getattr(response, "parsed", None)
-            if isinstance(parsed, dict):
-                return parsed
-            payload = _load_json(_extract_text(response))
-            return payload if isinstance(payload, dict) else None
-        except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
-            last_error = exc
-            if model_index < len(model_candidates) - 1 and _is_transient_gemini_error(exc):
-                logger.warning(
-                    "Gemini transient failure model=%s type=%s; trying fallback model=%s.",
-                    model_name,
-                    type(exc).__name__,
-                    FALLBACK_MODEL,
+        timeout_ms = GEMINI_PRIMARY_TIMEOUT_MS if model_index == 0 else GEMINI_FALLBACK_TIMEOUT_MS
+        for attempt in range(1 + GEMINI_MAX_RETRIES_PER_MODEL):
+            client = None
+            try:
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options=types.HttpOptions(timeout=timeout_ms),
                 )
-                time.sleep(GEMINI_RETRY_DELAY_SECONDS)
-                continue
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={
+                        "temperature": 0,
+                        "max_output_tokens": 2048,
+                        "response_mime_type": "application/json",
+                        "response_json_schema": SMART_PASTE_RESPONSE_SCHEMA,
+                    },
+                )
+                parsed = getattr(response, "parsed", None)
+                if isinstance(parsed, dict):
+                    return parsed
+                payload = _load_json(_extract_text(response))
+                return payload if isinstance(payload, dict) else None
+            except Exception as exc:  # noqa: BLE001 - SDK errors are heterogeneous
+                last_error = exc
+                if not _is_transient_gemini_error(exc):
+                    # Non-transient error (e.g. bad request) — stop immediately.
+                    break
+                # Exponential backoff: 0.5s → 1s → 2s …
+                backoff = GEMINI_RETRY_BASE_DELAY_SECONDS * (2 ** attempt)
+                # Retry the same model if we haven't exhausted attempts.
+                if attempt < GEMINI_MAX_RETRIES_PER_MODEL:
+                    logger.info(
+                        "Gemini transient failure model=%s attempt=%d/%d type=%s; "
+                        "retrying in %.1fs.",
+                        model_name,
+                        attempt + 1,
+                        1 + GEMINI_MAX_RETRIES_PER_MODEL,
+                        type(exc).__name__,
+                        backoff,
+                    )
+                    time.sleep(backoff)
+                    continue
+                # Move to next model candidate if available.
+                if model_index < len(model_candidates) - 1:
+                    next_model = model_candidates[model_index + 1]
+                    logger.warning(
+                        "Gemini transient failure model=%s type=%s; trying fallback model=%s.",
+                        model_name,
+                        type(exc).__name__,
+                        next_model,
+                    )
+                    time.sleep(backoff)
+                # break inner retry loop to move to next model
+                break
+            finally:
+                if client is not None:
+                    close = getattr(client, "close", None)
+                    if callable(close):
+                        close()
+        # If the last error was non-transient, stop trying more models.
+        if last_error is not None and not _is_transient_gemini_error(last_error):
             break
-        finally:
-            if client is not None:
-                close = getattr(client, "close", None)
-                if callable(close):
-                    close()
 
     assert last_error is not None
     if _is_transient_gemini_error(last_error):
         logger.warning(
-            "Gemini multi-event parse unavailable after model fallback type=%s error=%s.",
+            "Gemini multi-event parse unavailable after all model fallbacks type=%s error=%s.",
             type(last_error).__name__,
             str(last_error)[:300],
         )

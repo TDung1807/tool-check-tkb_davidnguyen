@@ -185,7 +185,12 @@ class GeminiParserTests(unittest.TestCase):
             code = 503
 
         mock_client = MagicMock()
+        # 2 models × 3 attempts each = 6 transient failures
         mock_client.models.generate_content.side_effect = [
+            GeminiUnavailableError("high demand"),
+            GeminiUnavailableError("high demand"),
+            GeminiUnavailableError("high demand"),
+            GeminiUnavailableError("high demand"),
             GeminiUnavailableError("high demand"),
             GeminiUnavailableError("high demand"),
         ]
@@ -199,7 +204,7 @@ class GeminiParserTests(unittest.TestCase):
             res = parse_events_with_gemini("Mai 14h họp nhóm")
 
         self.assertIsNone(res)
-        self.assertEqual(mock_client.models.generate_content.call_count, 2)
+        self.assertEqual(mock_client.models.generate_content.call_count, 6)
         legacy_parser.assert_not_called()
 
     def test_ambiguous_event(self) -> None:
