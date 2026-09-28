@@ -39,7 +39,7 @@ from calendar_sync import (
 )
 import crypto
 from tdtu import fetch_portal_snapshot
-from gemini_parser import parse_events_with_gemini
+from gemini_parser import DEFAULT_MODEL, FALLBACK_MODEL, parse_events_with_gemini
 from smart_paste import (
     SMART_PASTE_MAX_INPUT_CHARS,
     SmartPasteBatch,
@@ -489,7 +489,8 @@ def gemini_health(
         "api_key_set": api_key_set,
         "sdk_available": sdk_available,
         "sdk": sdk_name,
-        "model": os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite").strip(),
+        "model": DEFAULT_MODEL,
+        "fallback_model": FALLBACK_MODEL,
     }
 
 
@@ -806,7 +807,8 @@ def telegram_webhook(
                 cal_kwargs = _get_cal_kwargs(user)
 
                 if data == MENU_TODAY_CALLBACK:
-                    _, rows, _ = fetch_events_from_calendar(local_today(), **cal_kwargs)
+                    classes, appointments, exams = fetch_events_from_calendar(local_today(), **cal_kwargs)
+                    rows = [*classes, *appointments, *exams]
                     _send_text_with_keyboard(
                         token,
                         chat_id,
@@ -1194,7 +1196,8 @@ def telegram_webhook(
         cal_kwargs = _get_cal_kwargs(user)
 
         if command == "/today" and lowered == command_token:
-            _, rows, _ = fetch_events_from_calendar(local_today(), **cal_kwargs)
+            classes, appointments, exams = fetch_events_from_calendar(local_today(), **cal_kwargs)
+            rows = [*classes, *appointments, *exams]
             _send_text(token, chat_id, _build_today_appointments_text(rows))
             return {"ok": True}
         if command == "/deadline" and lowered == command_token:

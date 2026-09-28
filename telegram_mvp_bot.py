@@ -813,13 +813,20 @@ def _build_today_appointments_text(rows: list[dict]) -> str:
     today = local_today().strftime("%d/%m/%Y")
     lines = [f"Lịch hôm nay ({today}):"]
     if not rows:
-        lines.append("- Không có lịch hẹn ngày hôm nay. Chill bro")
+        lines.append("- Không có lịch hôm nay. Chill bro")
         return "\n".join(lines)
 
-    for idx, row in enumerate(rows, start=1):
+    ordered_rows = sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("start_time") or "99:99"),
+            str(row.get("title") or row.get("subject_name") or ""),
+        ),
+    )
+    for idx, row in enumerate(ordered_rows, start=1):
         t = (row.get("start_time") or "").strip()
         t = t[:5] if len(t) >= 5 else "all day"
-        title = row.get("title", "N/A")
+        title = row.get("title") or row.get("subject_name") or "N/A"
         location = row.get("location") or ""
         if location:
             lines.append(f"{idx}. {t} - {title} @ {location}")

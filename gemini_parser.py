@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 # Keep the model configurable because model availability can differ by API key
 # and Google may restrict newer/low-cost models for some projects.
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
-FALLBACK_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
+FALLBACK_MODEL = "gemini-3.5-flash-lite"
 # Keep both attempts within a short user-facing latency budget.  A transient
 # Gemini outage should not make Telegram users wait through two 10-second calls.
 # The Gemini API rejects manually configured deadlines below 10 seconds.

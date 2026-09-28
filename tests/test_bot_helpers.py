@@ -15,6 +15,7 @@ from telegram_mvp_bot import (
     _build_deadline_keyboard,
     _build_deadline_list_text,
     _build_exam_list_text,
+    _build_today_appointments_text,
     _deadline_callback_key,
     _format_deadline_due,
     _is_add_form_complete,
@@ -37,6 +38,19 @@ from webhook_app import (
 
 
 class BotHelperTests(unittest.TestCase):
+    def test_today_text_includes_class_and_appointment_rows(self) -> None:
+        with patch("telegram_mvp_bot.local_today", return_value=dt.date(2026, 9, 29)):
+            text = _build_today_appointments_text(
+                [
+                    {"subject_name": "Lập trình Web", "start_time": "08:30", "room": "C204"},
+                    {"title": "Họp nhóm", "start_time": "14:00", "location": "B402"},
+                ]
+            )
+
+        self.assertIn("Lập trình Web", text)
+        self.assertIn("Họp nhóm", text)
+        self.assertLess(text.index("Lập trình Web"), text.index("Họp nhóm"))
+
     def test_main_menu_exposes_primary_user_actions(self) -> None:
         keyboard = _build_main_menu_keyboard()
         callbacks = {
