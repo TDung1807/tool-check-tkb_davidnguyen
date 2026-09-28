@@ -15,6 +15,7 @@ Environment variables:
 from __future__ import annotations
 
 import hmac
+import datetime as dt
 import logging
 import os
 import re
@@ -34,7 +35,10 @@ from calendar_sync import (
     fetch_tagged_calendar_events,
     find_tagged_calendar_event,
     insert_calendar_event,
+    sync_schedule_week_to_google_calendar,
 )
+import crypto
+from tdtu import fetch_portal_snapshot
 from gemini_parser import parse_events_with_gemini
 from smart_paste import (
     SMART_PASTE_MAX_INPUT_CHARS,
@@ -97,6 +101,9 @@ _TELEGRAM_PATH_TOKEN_RE = re.compile(r"(/bot)[^/\s]+", re.IGNORECASE)
 _WEBHOOK_SECRET_RE = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
 _ADD_FORM_STATES: dict[str, dict[str, object]] = {}
 _SMART_PASTE_STATES = SmartPasteStateStore()
+_SCHEDULE_PREVIEWS: dict[str, dict[str, object]] = {}
+SCHEDULE_SYNC_PREFIX = "schedule_sync:"
+SCHEDULE_CANCEL_PREFIX = "schedule_cancel:"
 
 ADD_ONLY_GUIDANCE_TEXT = "Bạn có thể dán lịch tự nhiên để xem trước, hoặc dùng /add để nhập từng mục thủ công."
 MENU_CALLBACK_PREFIX = "menu:"
@@ -161,6 +168,86 @@ def _build_status_text(user: db.User | None = None) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _current_week() -> tuple[dt.date, dt.date]:
+    start = local_today() - dt.timedelta(days=local_today().weekday())
+    return start, start + dt.timedelta(days=6)
+
+
+def _build_week_schedule_text(rows: list[dict], week_start: dt.date, week_end: dt.date) -> str:
+    lines = [
+        f"📚 Lịch học tuần {week_start.strftime('%d/%m')}–{week_end.strftime('%d/%m/%Y')}",
+        "",
+    ]
+    if not rows:
+        lines.append("Không có lịch học trong tuần này.")
+        return "\n".join(lines)
+    by_date: dict[str, list[dict]] = {}
+    for row in rows:
+        by_date.setdefault(str(row.get("session_date") or "Chưa rõ ngày"), []).append(row)
+    for date_key in sorted(by_date):
+        try:
+            label = dt.date.fromisoformat(date_key).strftime("%A %d/%m")
+        except ValueError:
+            label = date_key
+        lines.append(f"📅 {label}")
+        for row in sorted(by_date[date_key], key=lambda x: str(x.get("start_time") or x.get("start_period") or "")):
+            subject = str(row.get("subject_name") or "Môn học")
+            start = str(row.get("start_time") or "").strip()[:5]
+            end = str(row.get("end_time") or "").strip()[:5]
+            time_text = f"{start}–{end}" if start and end else "chưa rõ giờ"
+            room = f" · {row.get('room')}" if row.get("room") else ""
+            status = str(row.get("status") or "scheduled").lower()
+            marker = " ⚠️" if status in {"absent", "cancelled", "moved"} else ""
+            lines.append(f"• {time_text} · {subject}{room}{marker}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _schedule_preview_keyboard(token: str) -> dict[str, list[list[dict[str, str]]]]:
+    return {"inline_keyboard": [[
+        {"text": "✅ Sync vào Google Calendar", "callback_data": f"{SCHEDULE_SYNC_PREFIX}{token}"},
+        {"text": "Bỏ qua", "callback_data": f"{SCHEDULE_CANCEL_PREFIX}{token}"},
+    ]]}
+
+
+def _crawl_week_schedule(user: db.User) -> tuple[list[dict], dt.date, dt.date]:
+    password = crypto.decrypt(user.encrypted_pass)
+    snapshot = fetch_portal_snapshot(user.mssv, password, weeks_ahead=1)
+    if not snapshot.schedule.success:
+        raise RuntimeError(snapshot.schedule.error or "Không lấy được lịch học từ cổng TDTU.")
+    week_start, week_end = _current_week()
+    rows = []
+    for row in snapshot.schedule.data or []:
+        try:
+            session_date = dt.date.fromisoformat(str(row.get("session_date") or ""))
+        except ValueError:
+            logger.warning("Skipping schedule row without valid session_date: %r", row)
+            continue
+        if week_start <= session_date <= week_end:
+            rows.append(row)
+    return rows, week_start, week_end
+
+
+def _send_week_schedule_preview(token: str, chat_id: str, user: db.User) -> None:
+    try:
+        rows, week_start, week_end = _crawl_week_schedule(user)
+    except Exception as exc:
+        logger.exception("Could not crawl weekly schedule for user %s", user.telegram_id)
+        _send_text(token, chat_id, f"⚠️ Không lấy được lịch tuần này: {exc}")
+        return
+    preview_token = uuid.uuid4().hex
+    _SCHEDULE_PREVIEWS[chat_id] = {
+        "token": preview_token,
+        "rows": rows,
+        "week_start": week_start,
+        "week_end": week_end,
+        "user_id": user.telegram_id,
+    }
+    text = _build_week_schedule_text(rows, week_start, week_end)
+    text += "\n\nBạn có muốn đồng bộ tuần này vào Google Calendar không?"
+    _send_text_with_keyboard(token, chat_id, text, _schedule_preview_keyboard(preview_token))
 
 
 def _build_start_message(user: db.User | None) -> str:
@@ -692,14 +779,7 @@ def telegram_webhook(
                         _build_main_menu_keyboard(),
                     )
                 elif data == MENU_SCHEDULE_CALLBACK:
-                    target_date = local_today()
-                    rows, _, _ = fetch_events_from_calendar(target_date, **cal_kwargs)
-                    _send_text_with_keyboard(
-                        token,
-                        chat_id,
-                        _build_schedule_text(rows, target_date),
-                        _build_main_menu_keyboard(),
-                    )
+                    _send_week_schedule_preview(token, chat_id, user)
                 elif data == MENU_DEADLINE_CALLBACK:
                     rows = fetch_tagged_calendar_events(SYNC_SOURCE_DEADLINE, **cal_kwargs)
                     keyboard = _build_deadline_keyboard(rows)
@@ -741,6 +821,35 @@ def telegram_webhook(
                     return {"ok": True}
                 selected = find_tagged_calendar_event(SYNC_SOURCE_DEADLINE, data.split(":", 1)[1], **_get_cal_kwargs(user))
                 _send_text(token, chat_id, _build_deadline_detail_text(selected))
+                return {"ok": True}
+
+            if data.startswith((SCHEDULE_SYNC_PREFIX, SCHEDULE_CANCEL_PREFIX)):
+                preview = _SCHEDULE_PREVIEWS.get(chat_id)
+                action, preview_token = data.split(":", 1)
+                if not preview or preview.get("token") != preview_token:
+                    _send_text(token, chat_id, "Preview lịch học đã hết hạn. Bạn bấm Lịch học để lấy lại nhé.")
+                    return {"ok": True}
+                if action == "schedule_cancel":
+                    _SCHEDULE_PREVIEWS.pop(chat_id, None)
+                    _send_text(token, chat_id, "Đã bỏ qua đồng bộ lịch tuần này.")
+                    return {"ok": True}
+                user = _require_user(token, chat_id)
+                if not user:
+                    return {"ok": True}
+                try:
+                    sync_schedule_week_to_google_calendar(
+                        preview["rows"],
+                        preview["week_start"],
+                        preview["week_end"],
+                        user.mssv,
+                        **_get_cal_kwargs(user),
+                    )
+                    _send_text(token, chat_id, "✅ Đã đồng bộ lịch học tuần này vào Google Calendar.")
+                except Exception as exc:
+                    logger.exception("On-demand weekly Calendar sync failed for user %s", user.telegram_id)
+                    _send_text(token, chat_id, f"⚠️ Sync Google Calendar thất bại: {exc}")
+                finally:
+                    _SCHEDULE_PREVIEWS.pop(chat_id, None)
                 return {"ok": True}
 
             _answer_callback(token, callback_query)
@@ -1037,6 +1146,9 @@ def telegram_webhook(
             return {"ok": True}
         if command in {"/schedule", "/scheduel"}:
             parts = text.split(maxsplit=1)
+            if len(parts) == 1:
+                _send_week_schedule_preview(token, chat_id, user)
+                return {"ok": True}
             try:
                 target_date = _parse_schedule_day_arg(parts[1] if len(parts) > 1 else None)
             except ValueError as exc:

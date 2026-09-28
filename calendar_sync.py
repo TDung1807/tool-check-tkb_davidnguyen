@@ -237,6 +237,57 @@ def sync_crawled_data_to_google_calendar(
     return "", True
 
 
+def sync_schedule_week_to_google_calendar(
+    class_sessions: list[dict],
+    week_start: dt.date,
+    week_end: dt.date,
+    student_id: str,
+    *,
+    calendar_service=None,
+    calendar_id=None,
+) -> tuple[str, bool]:
+    """Sync only class sessions inside one week, preserving other bot events.
+
+    This is used by the on-demand Telegram preview flow.  Unlike the regular
+    morning reconciliation, it must not delete class events belonging to
+    another week (or exams/deadlines).
+    """
+    if week_end < week_start:
+        raise ValueError("week_end must be on or after week_start")
+    if calendar_service is None or not calendar_id:
+        raise ValueError("calendar_service and calendar_id are required")
+
+    items = _build_sync_items_from_sessions(class_sessions, [], week_start)
+    scoped_items: list[dict] = []
+    for item in items:
+        if item["source_type"] != SYNC_SOURCE_CLASS_SESSION:
+            continue
+        item_start = _parse_calendar_event_start(item["payload"])
+        if item_start is not None and week_start <= item_start.date() <= week_end:
+            scoped_items.append(item)
+    existing_by_key, _ = _list_bot_events(calendar_service, calendar_id)
+    current_keys = {item["source_key"] for item in scoped_items}
+
+    for item in scoped_items:
+        _sync_calendar_item(calendar_service, calendar_id, item, existing_by_key.get(item["source_key"]))
+
+    for source_key, event in existing_by_key.items():
+        if source_key in current_keys or _event_source_type(event) != SYNC_SOURCE_CLASS_SESSION:
+            continue
+        event_start = _parse_calendar_event_start(event)
+        if event_start is None or not (week_start <= event_start.date() <= week_end):
+            continue
+        event_id = str(event.get("id") or "").strip()
+        if event_id:
+            _safe_delete_calendar_event(calendar_service, calendar_id, event_id)
+
+    logger.info(
+        "Synced %d class session(s) for %s..%s to Google Calendar '%s'.",
+        len(scoped_items), week_start, week_end, calendar_id,
+    )
+    return "", True
+
+
 def insert_calendar_event(
     title: str,
     appointment_date: dt.date,

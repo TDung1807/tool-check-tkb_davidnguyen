@@ -27,6 +27,11 @@ Google Calendar là nơi lưu trữ lịch. Telegram là giao diện thao tác.
 | `/exam` | Xem lịch thi |
 | `/add` | Thêm lịch thủ công |
 
+Khi chọn **Lịch học** hoặc dùng `/schedule` không kèm ngày, bot sẽ cào toàn bộ
+tuần hiện tại từ cổng TDTU, gửi bản xem trước theo từng ngày và hỏi trước khi
+đồng bộ tuần đó vào Google Calendar. Luồng tự động lúc 05:00 vẫn tiếp tục kiểm
+tra thay đổi và đồng bộ như cũ.
+
 Người dùng mới chọn **Bắt đầu kết nối**, nhập MSSV/mật khẩu TDTU trong Mini App, sau đó cấp quyền Google Calendar.
 
 ## Cấu hình Render
