@@ -16,7 +16,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import Resource, build
 from googleapiclient.errors import HttpError
 
-from time_utils import local_today
+from time_utils import PERIOD_TIME_RANGES, local_today, period_shift, period_time_range
 
 logger = logging.getLogger(__name__)
 
@@ -62,21 +62,7 @@ CONTACT_FILE = "contact.txt"
 
 # Official TDTU period start times from the provided timetable image.
 PERIOD_START: dict[int, str] = {
-    1: "06:50",
-    2: "07:40",
-    3: "08:30",
-    4: "09:30",
-    5: "10:20",
-    6: "11:10",
-    7: "12:45",
-    8: "13:35",
-    9: "14:25",
-    10: "15:25",
-    11: "16:15",
-    12: "17:05",
-    13: "18:05",
-    14: "18:55",
-    15: "19:45",
+    period: times[0] for period, times in PERIOD_TIME_RANGES.items()
 }
 
 
@@ -729,11 +715,16 @@ def _build_sync_items_from_sessions(
         session_date = _parse_date(session.get("session_date"), target_date)
         session_id = str(session.get("id") or "").strip()
 
-        start_time = _display_time(session.get("start_time")) or PERIOD_START.get(
-            _to_int(session.get("start_period")),
-            _fallback_period_time(_to_int(session.get("start_period"))),
+        computed_times = period_time_range(session.get("start_period"), session.get("end_period"))
+        start_time = _display_time(session.get("start_time")) or (
+            computed_times[0] if computed_times else PERIOD_START.get(
+                _to_int(session.get("start_period")),
+                _fallback_period_time(_to_int(session.get("start_period"))),
+            )
         )
-        end_time = _display_time(session.get("end_time"))
+        end_time = _display_time(session.get("end_time")) or (
+            computed_times[1] if computed_times else None
+        )
         if not end_time:
             end_base = PERIOD_START.get(
                 _to_int(session.get("end_period")),

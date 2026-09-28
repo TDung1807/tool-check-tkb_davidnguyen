@@ -84,7 +84,7 @@ from telegram_mvp_bot import (
     _send_text_with_keyboard,
     _skip_add_form_optional_step,
 )
-from time_utils import local_today
+from time_utils import local_today, period_time_range
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -203,8 +203,9 @@ def _build_week_schedule_text(rows: list[dict], week_start: dt.date, week_end: d
         lines.append(f"📅 {label}")
         for row in sorted(by_date[date_key], key=lambda x: str(x.get("start_time") or x.get("start_period") or "")):
             subject = str(row.get("subject_name") or "Môn học")
-            start = str(row.get("start_time") or "").strip()[:5]
-            end = str(row.get("end_time") or "").strip()[:5]
+            computed_times = period_time_range(row.get("start_period"), row.get("end_period"))
+            start = str(row.get("start_time") or (computed_times[0] if computed_times else "")).strip()[:5]
+            end = str(row.get("end_time") or (computed_times[1] if computed_times else "")).strip()[:5]
             time_text = f"{start}–{end}" if start and end else "chưa rõ giờ"
             room = f" · {row.get('room')}" if row.get("room") else ""
             status = str(row.get("status") or "scheduled").lower()

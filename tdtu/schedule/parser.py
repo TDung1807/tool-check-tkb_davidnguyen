@@ -11,6 +11,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from tdtu.exceptions import TDTUProtocolError
+from time_utils import period_shift, period_time_range
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +378,8 @@ def parse_weekly_grid_table(html: str, student_id: str = "") -> list[dict[str, A
                     elif entry["start_period"] == 0:
                         raise TDTUProtocolError(f"Weekly schedule entry '{entry['subject_name']}' is missing valid period")
 
+                    _apply_period_metadata(entry)
+
                     entries.append(entry)
 
     return _deduplicate_schedule(entries)
@@ -470,7 +473,7 @@ def _parse_schedule_cell_text(text: str, day_of_week: str, student_id: str) -> d
 
     start_period, end_period = parse_period_range(full_text)
 
-    return {
+    entry = {
         "student_id": student_id,
         "subject_name": subject_name,
         "room": room,
@@ -480,6 +483,20 @@ def _parse_schedule_cell_text(text: str, day_of_week: str, student_id: str) -> d
         "end_period": end_period,
         "status": status,
     }
+    _apply_period_metadata(entry)
+    return entry
+
+
+def _apply_period_metadata(entry: dict[str, Any]) -> None:
+    """Attach the canonical TDTU clock range and shift to a schedule row."""
+    times = period_time_range(entry.get("start_period"), entry.get("end_period"))
+    if times:
+        entry["start_time"], entry["end_time"] = times
+        entry["shift"] = period_shift(entry.get("start_period"))
+    else:
+        entry.pop("start_time", None)
+        entry.pop("end_time", None)
+        entry.pop("shift", None)
 
 
 def _parse_column_based_schedule(soup: BeautifulSoup, student_id: str) -> list[dict[str, Any]]:
@@ -528,7 +545,7 @@ def _parse_column_based_schedule(soup: BeautifulSoup, student_id: str) -> list[d
             full_row_text = " ".join(cells)
             status = detect_status(full_row_text)
 
-            entries.append({
+            entry = {
                 "student_id": student_id,
                 "subject_name": subj,
                 "room": room,
@@ -537,7 +554,9 @@ def _parse_column_based_schedule(soup: BeautifulSoup, student_id: str) -> list[d
                 "start_period": start_p,
                 "end_period": end_p,
                 "status": status,
-            })
+            }
+            _apply_period_metadata(entry)
+            entries.append(entry)
 
     return _deduplicate_schedule(entries)
 
