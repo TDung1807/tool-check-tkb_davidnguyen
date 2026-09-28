@@ -42,14 +42,19 @@ class BotHelperTests(unittest.TestCase):
         with patch("telegram_mvp_bot.local_today", return_value=dt.date(2026, 9, 29)):
             text = _build_today_appointments_text(
                 [
-                    {"subject_name": "Lập trình Web", "start_time": "08:30", "room": "C204"},
+                    {
+                        "subject_name": "Nhập môn khoa học dữ liệu",
+                        "start_period": 4,
+                        "end_period": 6,
+                        "room": "D0402",
+                    },
                     {"title": "Họp nhóm", "start_time": "14:00", "location": "B402"},
                 ]
             )
 
-        self.assertIn("Lập trình Web", text)
+        self.assertIn("• Ca 2 · 09:30–12:00 · Nhập môn khoa học dữ liệu · D0402", text)
         self.assertIn("Họp nhóm", text)
-        self.assertLess(text.index("Lập trình Web"), text.index("Họp nhóm"))
+        self.assertLess(text.index("Nhập môn khoa học dữ liệu"), text.index("Họp nhóm"))
 
     def test_main_menu_exposes_primary_user_actions(self) -> None:
         keyboard = _build_main_menu_keyboard()

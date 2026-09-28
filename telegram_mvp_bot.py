@@ -34,7 +34,7 @@ from calendar_sync import (
 )
 from gemini_parser import generate_conversational_reply_with_gemini
 from smart_paste import normalize_smart_paste_event
-from time_utils import local_now, local_today
+from time_utils import local_now, local_today, period_shift, period_time_range
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -816,22 +816,32 @@ def _build_today_appointments_text(rows: list[dict]) -> str:
         lines.append("- Không có lịch hôm nay. Chill bro")
         return "\n".join(lines)
 
-    ordered_rows = sorted(
-        rows,
-        key=lambda row: (
-            str(row.get("start_time") or "99:99"),
-            str(row.get("title") or row.get("subject_name") or ""),
-        ),
-    )
-    for idx, row in enumerate(ordered_rows, start=1):
-        t = (row.get("start_time") or "").strip()
-        t = t[:5] if len(t) >= 5 else "all day"
+    def sort_key(row: dict) -> tuple[str, str]:
+        computed_times = period_time_range(row.get("start_period"), row.get("end_period"))
+        start_time = computed_times[0] if computed_times else str(row.get("start_time") or "99:99")
+        return start_time, str(row.get("title") or row.get("subject_name") or "")
+
+    ordered_rows = sorted(rows, key=sort_key)
+    for row in ordered_rows:
         title = row.get("title") or row.get("subject_name") or "N/A"
-        location = row.get("location") or ""
+        location = row.get("location") or row.get("room") or ""
+        computed_times = period_time_range(row.get("start_period"), row.get("end_period"))
+        if computed_times:
+            shift = row.get("shift") or period_shift(row.get("start_period"))
+            start, end = computed_times
+            slot = f"Ca {shift} · {start}–{end}" if shift else f"{start}–{end}"
+            line = f"• {slot} · {title}"
+            if location:
+                line += f" · {location}"
+            lines.append(line)
+            continue
+
+        start_time = str(row.get("start_time") or "").strip()
+        start_time = start_time[:5] if len(start_time) >= 5 else "cả ngày"
+        line = f"• {start_time} · {title}"
         if location:
-            lines.append(f"{idx}. {t} - {title} @ {location}")
-        else:
-            lines.append(f"{idx}. {t} - {title}")
+            line += f" · {location}"
+        lines.append(line)
     return "\n".join(lines)
 
 
