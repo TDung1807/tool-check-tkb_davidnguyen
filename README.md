@@ -46,13 +46,15 @@ Người dùng mới chọn **Bắt đầu kết nối**, nhập MSSV/mật kh�
 
 
 ## Bảo mật
-- Mật khẩu TDTU portal và Google refresh token được mã hóa thành `ENCRYPTION_KEY` bằng Fernet trước khi lưu Supabase kể cả admin cũng không thể đọc được ở dạng plain text.
+- Mật khẩu TDTU portal và Google refresh token được mã hóa thành `ENCRYPTION_KEY` bằng Fernet trước khi lưu Supabase, kể cả admin cũng không thể đọc được ở dạng plain text.
 - Cam kết không dùng `GOOGLE_CALENDAR_ID=primary`; Google OAuth sẽ tạo/chọn Calendar riêng cho từng user.
 
 ## Lưu ý 
-**Bot không có giá trị và quyền thay thế hoàn toàn lịch học chính thức trên portal và app TDT student**
-**Mọi hành động đăng nhập và cung cấp thông tin đều do người dùng quyết định**
+- **Bot không có giá trị và quyền thay thế hoàn toàn lịch học chính thức trên portal và app TDT student.**
+- **Mọi hành động đăng nhập và cung cấp thông tin đều do người dùng quyết định.**
+
 
 ## Bản fork được chỉnh sửa lại từ bản chính với mục đích chính là dễ dùng hơn cho non-tech users.
 
-## Mọi thắc mắc về bản fork này liên hệ về gmail : nguyenntienndungg18@gmail.com
+
+## Mọi thắc mắc về bản fork này liên hệ về gmail : [nguyenntienndungg18@gmail.com](https://mail.google.com/mail/u/0/?fs=1&to=nguyenntienndungg18@gmail.com&tf=cm)
