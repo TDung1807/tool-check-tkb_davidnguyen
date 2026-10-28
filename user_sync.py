@@ -220,6 +220,9 @@ def sync_one_user(user: User) -> SyncResult:
     """
     logger.info("Syncing user %s (MSSV=%s)…", user.telegram_id, user.mssv)
 
+    if not user.google_refresh_token or not user.google_calendar_id:
+        return SyncResult(error="Chưa kết nối Google Calendar.")
+
     # 1. Decrypt credentials
     try:
         password = crypto.decrypt(user.encrypted_pass)
@@ -236,7 +239,10 @@ def sync_one_user(user: User) -> SyncResult:
         logger.exception("Crawl failed for user %s", user.telegram_id)
         return SyncResult(error=f"Lỗi crawl TDTU: {exc}")
 
-    schedule = snapshot.schedule.data if snapshot.schedule.success else None
+    if not snapshot.schedule.success:
+        return SyncResult(error=f"Lỗi lấy thời khóa biểu: {snapshot.schedule.error or 'Không có dữ liệu'}")
+
+    schedule = snapshot.schedule.data
     exams = snapshot.exams.data if snapshot.exams.success else None
 
     # 3. eLearning deadlines (best-effort)

@@ -213,7 +213,7 @@ def get_snapshot(telegram_id: int) -> dict | None:
         .maybe_single()
         .execute()
     )
-    return result.data if result.data else None
+    return result.data if result and result.data else None
 
 
 def save_snapshot(

@@ -20,7 +20,7 @@ import hashlib
 import hmac
 import json
 import time
-from urllib.parse import parse_qs, unquote
+from urllib.parse import parse_qs
 
 
 # Maximum age (seconds) of ``auth_date`` before we reject the data.
@@ -115,7 +115,7 @@ def verify_init_data(
         raise InitDataError("Missing 'user' in initData.")
 
     try:
-        user = json.loads(unquote(user_raw))
+        user = json.loads(user_raw)
     except (json.JSONDecodeError, TypeError) as exc:
         raise InitDataError("Invalid 'user' JSON in initData.") from exc
 

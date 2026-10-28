@@ -161,6 +161,8 @@ def run_morning_sync() -> None:
         change_count,
         fail_count,
     )
+    if fail_count:
+        raise RuntimeError(f"Morning sync failed for {fail_count} user(s)")
 
 
 # -----------------------------------------------------------------------

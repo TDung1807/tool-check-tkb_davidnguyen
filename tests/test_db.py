@@ -6,6 +6,12 @@ import db
 
 
 class DbUserLookupTests(unittest.TestCase):
+    def test_get_snapshot_returns_none_for_empty_supabase_response(self) -> None:
+        client = MagicMock()
+        client.table.return_value.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value = None
+        with patch.object(db, "_get_client", return_value=client):
+            self.assertIsNone(db.get_snapshot(123))
+
     def test_get_user_returns_none_for_empty_supabase_response(self) -> None:
         query = MagicMock()
         query.execute.return_value = None
