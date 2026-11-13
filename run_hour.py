@@ -162,7 +162,10 @@ def run_morning_sync() -> None:
         fail_count,
     )
     if fail_count:
-        raise RuntimeError(f"Morning sync failed for {fail_count} user(s)")
+        logger.warning(
+            "Morning sync had %d failed user(s); workflow will continue.",
+            fail_count,
+        )
 
 
 # -----------------------------------------------------------------------

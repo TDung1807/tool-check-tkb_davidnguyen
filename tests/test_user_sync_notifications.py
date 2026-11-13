@@ -8,11 +8,11 @@ from user_sync import SyncResult, _diff_summary, sync_one_user
 
 
 class UserSyncNotificationTests(unittest.TestCase):
-    def test_morning_job_fails_when_a_user_sync_fails(self) -> None:
+    def test_morning_job_continues_when_a_user_sync_fails(self) -> None:
         user = db.User(telegram_id=123, mssv="123", encrypted_pass="encrypted")
-        with patch.object(run_hour, "_load_dotenv"), patch.object(db, "get_all_active_users", return_value=[user]), patch.object(db, "log_sync"), patch("user_sync.sync_one_user", return_value=SyncResult(error="portal unavailable")):
-            with self.assertRaisesRegex(RuntimeError, "1 user"):
-                run_hour.run_morning_sync()
+        with patch.object(run_hour, "_load_dotenv"), patch.object(db, "get_all_active_users", return_value=[user]), patch.object(db, "log_sync") as log_sync, patch("user_sync.sync_one_user", return_value=SyncResult(error="portal unavailable")):
+            run_hour.run_morning_sync()
+        log_sync.assert_called_once_with(123, "failed", "portal unavailable", sync_type="morning")
 
     def test_failed_schedule_does_not_save_snapshot(self) -> None:
         user = db.User(telegram_id=123, mssv="123", encrypted_pass="encrypted", google_refresh_token="token", google_calendar_id="calendar")
